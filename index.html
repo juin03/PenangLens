@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PenangLens - Fine-Tuned Detection</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 900px;
+            margin: auto;
+        }
+
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #7f8c8d;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .nav-links {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .nav-links a {
+            color: #667eea;
+            text-decoration: none;
+            margin: 0 20px;
+            font-weight: 600;
+            font-size: 16px;
+            transition: color 0.3s;
+        }
+
+        .nav-links a:hover {
+            color: #764ba2;
+            text-decoration: underline;
+        }
+
+        .trained-classes {
+            background: #e8f5e9;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .trained-classes h3 {
+            color: #2e7d32;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .class-badges {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .badge {
+            background: #4caf50;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            background: #f7f9ff;
+            padding: 60px 40px;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 20px;
+            text-align: center;
+            display: block; /* Ensure label behaves like block */
+        }
+
+        /* FIX 1: Prevent children from interfering with drag events */
+        .upload-area * {
+            pointer-events: none;
+        }
+
+        .upload-area:hover {
+            background: #eef2ff;
+            border-color: #5568d3;
+            transform: translateY(-2px);
+        }
+
+        .upload-area.dragover {
+            background: #e0e7ff;
+            border-color: #4c51bf;
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+            font-weight: 600;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(118, 75, 162, 0.4);
+        }
+
+        button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .preview-section {
+            margin: 20px 0;
+            display: none;
+        }
+
+        .preview-img {
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 10px;
+            border: 2px solid #ddd;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .result-container {
+            margin-top: 30px;
+            display: none;
+            animation: fadeIn 0.5s;
+        }
+
+        .result-header {
+            color: #27ae60;
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+
+        .result-img {
+            max-width: 100%;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            margin-bottom: 20px;
+        }
+
+        .detection-info {
+            background: #e8f5e9;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 15px;
+        }
+
+        .detection-info h4 {
+            margin-top: 0;
+            color: #2e7d32;
+            font-size: 1.2em;
+            margin-bottom: 15px;
+        }
+
+        .detection-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .detection-item {
+            background: white;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            border-left: 4px solid #4caf50;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .detection-name {
+            font-weight: 600;
+            color: #2c3e50;
+            text-transform: capitalize;
+        }
+
+        .detection-confidence {
+            background: #4caf50;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 14px;
+        }
+
+        .no-detection {
+            text-align: center;
+            color: #e74c3c;
+            padding: 20px;
+            font-size: 1.1em;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+            color: #667eea;
+            font-weight: 600;
+            font-size: 1.1em;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 2em;
+            }
+
+            .nav-links a {
+                display: block;
+                margin: 10px 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🏛️ PenangLens Detection</h1>
+        <p class="subtitle">Fine-Tuned YOLO-World for Architectural Features</p>
+
+        <div class="nav-links">
+            <a href="/test-zeroshot">🧪 Test Zero-Shot Capabilities</a>
+        </div>
+
+        <div class="trained-classes">
+            <h3>🎯 Trained to Detect:</h3>
+            <div class="class-badges">
+                <span class="badge">Burmese Spire</span>
+                <span class="badge">Chinese Base</span>
+                <span class="badge">Thai Tier</span>
+            </div>
+        </div>
+
+        <label for="fileInput" class="upload-area" id="uploadArea">
+            <div class="upload-icon">📤</div>
+            <p style="font-size: 18px; font-weight: 600; margin-bottom: 5px;">Drop an image here or click to upload</p>
+            <p style="font-size: 14px; color: #7f8c8d;">Supports: JPG, PNG, WEBP, AVIF, HEIC</p>
+            <input type="file" id="fileInput" accept="image/*">
+        </label>
+
+        <div class="preview-section" id="previewSection">
+            <h3 style="text-align: center; color: #2c3e50; margin-bottom: 15px;">📸 Preview</h3>
+            <img id="previewImg" class="preview-img" alt="Preview">
+        </div>
+
+        <button id="detectBtn" onclick="runDetection()" disabled>🔍 Detect Architectural Features</button>
+
+        <div class="loading" id="loadingText">
+            <div class="spinner"></div>
+            ⏳ Analyzing image with fine-tuned YOLO-World...
+        </div>
+
+        <div class="result-container" id="resultArea">
+            <h3 class="result-header">✅ Detection Complete</h3>
+            <img id="resultImg" class="result-img" src="" alt="Detection Result">
+            <div class="detection-info" id="detectionInfo"></div>
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const previewImg = document.getElementById('previewImg');
+        const previewSection = document.getElementById('previewSection');
+        const resultArea = document.getElementById('resultArea');
+        const resultImg = document.getElementById('resultImg');
+        const loadingText = document.getElementById('loadingText');
+        const detectBtn = document.getElementById('detectBtn');
+        const uploadArea = document.getElementById('uploadArea');
+        const detectionInfo = document.getElementById('detectionInfo');
+
+        // Centralized function to handle file selection
+        function handleFileSelection(file) {
+            if (!file) return;
+            
+            // Validate image type
+            if (!file.type.startsWith('image/')) {
+                alert('⚠️ Please select an image file.');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                previewImg.src = e.target.result;
+                previewSection.style.display = 'block';
+                resultArea.style.display = 'none'; // Hide previous results
+                detectBtn.disabled = false;
+            }
+            reader.readAsDataURL(file);
+        }
+
+        // Standard File Input Change
+        fileInput.addEventListener('change', function () {
+            if (this.files && this.files[0]) {
+                handleFileSelection(this.files[0]);
+            }
+        });
+
+        // FIX 2: Clear value on click so "change" event fires even if selecting the same file
+        fileInput.addEventListener('click', function () {
+            this.value = '';
+        });
+
+        // Drag & Drop Handling
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => {
+                uploadArea.classList.add('dragover');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => {
+                uploadArea.classList.remove('dragover');
+            });
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt?.files;
+            
+            if (files && files.length > 0) {
+                fileInput.files = files; // Sync the dropped file to input
+                handleFileSelection(files[0]); // Run unified logic
+            }
+        });
+
+        // Run detection
+        async function runDetection() {
+            const file = fileInput.files[0];
+
+            if (!file) {
+                alert("⚠️ Please upload an image first!");
+                return;
+            }
+
+            detectBtn.disabled = true;
+            detectBtn.innerText = "Analyzing...";
+            loadingText.style.display = 'block';
+            resultArea.style.display = 'none';
+
+            const formData = new FormData();
+            formData.append('image', file);
+
+            try {
+                const response = await fetch('/detect', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // FIX 3: Check if URL is base64. If it is, DO NOT append timestamp, it breaks data URIs.
+                    const isBase64 = data.image_url.startsWith('data:');
+                    const cacheBuster = isBase64 ? '' : (data.image_url.includes('?') ? '&t=' : '?t=') + new Date().getTime();
+                    
+                    resultImg.src = data.image_url + cacheBuster;
+                    
+                    // Show detection info
+                    let infoHTML = `<h4>🎯 Detections Found: ${data.count}</h4>`;
+                    
+                    if (data.count > 0 && data.detections) {
+                        infoHTML += '<ul class="detection-list">';
+                        data.detections.forEach(det => {
+                            // Safe navigation in case class is undefined
+                            const className = det.class ? det.class.replace(/_/g, ' ') : 'Unknown';
+                            infoHTML += `
+                                <li class="detection-item">
+                                    <span class="detection-name">${className}</span>
+                                    <span class="detection-confidence">${(det.confidence * 100).toFixed(1)}%</span>
+                                </li>
+                            `;
+                        });
+                        infoHTML += '</ul>';
+                    } else {
+                        infoHTML += '<p class="no-detection">No architectural features detected. Try a different image or test with zero-shot prompts.</p>';
+                    }
+                    
+                    detectionInfo.innerHTML = infoHTML;
+                    resultArea.style.display = 'block';
+                } else {
+                    alert("❌ Error: " + (data.error || "Unknown error"));
+                }
+            } catch (err) {
+                console.error(err);
+                alert("❌ Failed to connect to backend. Make sure the server is running.");
+            } finally {
+                detectBtn.disabled = false;
+                detectBtn.innerText = "🔍 Detect Architectural Features";
+                loadingText.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
