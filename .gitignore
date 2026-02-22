@@ -1,3 +1,17 @@
+# General
 .env
-/Dataset
-/data_prep
+.venv/
+__pycache__/
+
+# VisionML Specific
+VisionML/data_prep/Dataset/
+VisionML/data_prep/all/
+VisionML/models/results/
+VisionML/models/full_finetuning/
+VisionML/models/partial_finetuning/
+VisionML/uploads/
+*.pt
+
+# Agent Specific
+Agent/node_modules/
+Agent/dist/
