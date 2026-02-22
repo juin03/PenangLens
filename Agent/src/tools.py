@@ -16,7 +16,8 @@ from datetime import datetime
 
 def load_landmarks() -> List[Dict]:
     """Load landmarks from the local JSON file."""
-    landmarks_path = os.path.join(os.path.dirname(__file__), 'penang_landmarks.json')
+    # Build path relative to Agent/src/tools.py -> Agent/data/penang_landmarks.json
+    landmarks_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'penang_landmarks.json')
     with open(landmarks_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 

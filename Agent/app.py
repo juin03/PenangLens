@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
-from agent import run_agent
+from src.agent import run_agent
 
 # Load environment variables
 load_dotenv()

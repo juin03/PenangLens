@@ -19,7 +19,7 @@ from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool
 
 # Import our custom tools
-from tools import (
+from .tools import (
     search_places, 
     get_travel_time, 
     check_weather, 
@@ -103,7 +103,7 @@ def optimize_route_tool(locations: str) -> str:
     Returns:
         Optimized order with total distance and duration
     """
-    from route_optimizer import optimize_route
+    from .route_optimizer import optimize_route
     
     # Parse locations
     if isinstance(locations, list):
@@ -153,7 +153,7 @@ def create_route_visualization_tool(locations: str) -> str:
     Returns:
         A Google Maps URL showing the walking route through all locations
     """
-    from tools import create_route_url
+    from .tools import create_route_url
     
     # Handle both string and list inputs
     if isinstance(locations, list):

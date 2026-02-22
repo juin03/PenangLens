@@ -10,7 +10,7 @@ This script provides:
 import os
 import sys
 from dotenv import load_dotenv
-from agent import run_agent
+from src.agent import run_agent
 
 
 def validate_environment():
