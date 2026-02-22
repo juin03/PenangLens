@@ -1,0 +1,22 @@
+# Python-generated files
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+Dataset/
+images/
+raw_images/
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+*.pt
+uploads/
+results/
+*.pt
+*.jpg
+
+# Virtual environments
+.venv

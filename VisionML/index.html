@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PenangLens - Fine-Tuned Detection</title>
+    <title>PenangLens - YOLO11 Detection</title>
     <style>
         * {
             margin: 0;
@@ -42,56 +42,38 @@
             font-size: 1.1em;
         }
 
-        .nav-links {
-            text-align: center;
-            margin-bottom: 30px;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 10px;
-        }
-
-        .nav-links a {
-            color: #667eea;
-            text-decoration: none;
-            margin: 0 20px;
-            font-weight: 600;
-            font-size: 16px;
-            transition: color 0.3s;
-        }
-
-        .nav-links a:hover {
-            color: #764ba2;
-            text-decoration: underline;
-        }
-
         .trained-classes {
             background: #e8f5e9;
-            padding: 15px;
+            padding: 20px;
             border-radius: 10px;
-            margin-bottom: 20px;
+            margin-bottom: 30px;
             text-align: center;
+            border: 1px solid #c8e6c9;
         }
 
         .trained-classes h3 {
             color: #2e7d32;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
             font-size: 1.1em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
 
         .class-badges {
             display: flex;
             justify-content: center;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 12px;
         }
 
         .badge {
             background: #4caf50;
             color: white;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 14px;
+            padding: 8px 18px;
+            border-radius: 25px;
+            font-size: 15px;
             font-weight: 600;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
 
         .upload-area {
@@ -103,10 +85,9 @@
             transition: all 0.3s;
             margin-bottom: 20px;
             text-align: center;
-            display: block; /* Ensure label behaves like block */
+            display: block;
         }
 
-        /* FIX 1: Prevent children from interfering with drag events */
         .upload-area * {
             pointer-events: none;
         }
@@ -143,6 +124,7 @@
             transition: all 0.3s;
             width: 100%;
             font-weight: 600;
+            margin-top: 10px;
         }
 
         button:hover:not(:disabled) {
@@ -188,25 +170,23 @@
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
             margin-bottom: 20px;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
         }
 
         .detection-info {
-            background: #e8f5e9;
+            background: #f8f9fa;
             padding: 20px;
             border-radius: 10px;
             margin-top: 15px;
-        }
-
-        .detection-info h4 {
-            margin-top: 0;
-            color: #2e7d32;
-            font-size: 1.2em;
-            margin-bottom: 15px;
+            border-left: 5px solid #667eea;
         }
 
         .detection-list {
             list-style: none;
             padding: 0;
+            margin-top: 10px;
         }
 
         .detection-item {
@@ -214,31 +194,24 @@
             padding: 12px;
             margin-bottom: 10px;
             border-radius: 8px;
-            border-left: 4px solid #4caf50;
+            border: 1px solid #e0e0e0;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
         .detection-name {
-            font-weight: 600;
+            font-weight: 700;
             color: #2c3e50;
             text-transform: capitalize;
         }
 
         .detection-confidence {
-            background: #4caf50;
+            background: #667eea;
             color: white;
             padding: 4px 12px;
             border-radius: 12px;
             font-size: 14px;
-        }
-
-        .no-detection {
-            text-align: center;
-            color: #e74c3c;
-            padding: 20px;
-            font-size: 1.1em;
         }
 
         .loading {
@@ -266,29 +239,13 @@
         }
 
         @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-
+        
         @media (max-width: 768px) {
-            .container {
-                padding: 20px;
-            }
-
-            h1 {
-                font-size: 2em;
-            }
-
-            .nav-links a {
-                display: block;
-                margin: 10px 0;
-            }
+            .container { padding: 20px; }
+            h1 { font-size: 2em; }
         }
     </style>
 </head>
@@ -296,15 +253,16 @@
 <body>
     <div class="container">
         <h1>🏛️ PenangLens Detection</h1>
-        <p class="subtitle">Fine-Tuned YOLO-World for Architectural Features</p>
-
-        <div class="nav-links">
-            <a href="/test-zeroshot">🧪 Test Zero-Shot Capabilities</a>
-        </div>
+        <p class="subtitle">Powered by YOLO11 - Architectural Recognition</p>
 
         <div class="trained-classes">
-            <h3>🎯 Trained to Detect:</h3>
+            <h3>🎯 Model Trained to Detect (9 Classes):</h3>
             <div class="class-badges">
+                <span class="badge">Dragon Pillar</span>
+                <span class="badge">Guan Yin Statue</span>
+                <span class="badge">Holy Vase</span>
+                <span class="badge">Lotus Base</span>
+                <span class="badge">Three Tiered Pavilion Roof</span>
                 <span class="badge">Burmese Spire</span>
                 <span class="badge">Chinese Base</span>
                 <span class="badge">Thai Tier</span>
@@ -314,24 +272,26 @@
         <label for="fileInput" class="upload-area" id="uploadArea">
             <div class="upload-icon">📤</div>
             <p style="font-size: 18px; font-weight: 600; margin-bottom: 5px;">Drop an image here or click to upload</p>
-            <p style="font-size: 14px; color: #7f8c8d;">Supports: JPG, PNG, WEBP, AVIF, HEIC</p>
+            <p style="font-size: 14px; color: #7f8c8d;">Supports: JPG, PNG, WEBP</p>
             <input type="file" id="fileInput" accept="image/*">
         </label>
 
         <div class="preview-section" id="previewSection">
-            <h3 style="text-align: center; color: #2c3e50; margin-bottom: 15px;">📸 Preview</h3>
+            <h3 style="text-align: center; color: #2c3e50; margin-bottom: 15px;">📸 Image Preview</h3>
             <img id="previewImg" class="preview-img" alt="Preview">
         </div>
 
-        <button id="detectBtn" onclick="runDetection()" disabled>🔍 Detect Architectural Features</button>
+        <button id="detectBtn" onclick="runDetection()" disabled>
+            <span id="btnText">🔍 Analyze Architecture</span>
+        </button>
 
         <div class="loading" id="loadingText">
             <div class="spinner"></div>
-            ⏳ Analyzing image with fine-tuned YOLO-World...
+            <span>⏳ Running YOLO11 Inference...</span>
         </div>
 
         <div class="result-container" id="resultArea">
-            <h3 class="result-header">✅ Detection Complete</h3>
+            <h3 class="result-header">✅ Detection Results</h3>
             <img id="resultImg" class="result-img" src="" alt="Detection Result">
             <div class="detection-info" id="detectionInfo"></div>
         </div>
@@ -347,12 +307,11 @@
         const detectBtn = document.getElementById('detectBtn');
         const uploadArea = document.getElementById('uploadArea');
         const detectionInfo = document.getElementById('detectionInfo');
-
-        // Centralized function to handle file selection
+        
+        // File selection handler
         function handleFileSelection(file) {
             if (!file) return;
             
-            // Validate image type
             if (!file.type.startsWith('image/')) {
                 alert('⚠️ Please select an image file.');
                 return;
@@ -362,25 +321,19 @@
             reader.onload = function (e) {
                 previewImg.src = e.target.result;
                 previewSection.style.display = 'block';
-                resultArea.style.display = 'none'; // Hide previous results
+                resultArea.style.display = 'none';
                 detectBtn.disabled = false;
             }
             reader.readAsDataURL(file);
         }
 
-        // Standard File Input Change
         fileInput.addEventListener('change', function () {
             if (this.files && this.files[0]) {
                 handleFileSelection(this.files[0]);
             }
         });
 
-        // FIX 2: Clear value on click so "change" event fires even if selecting the same file
-        fileInput.addEventListener('click', function () {
-            this.value = '';
-        });
-
-        // Drag & Drop Handling
+        // Drag & Drop
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
             uploadArea.addEventListener(eventName, (e) => {
                 e.preventDefault();
@@ -405,8 +358,8 @@
             const files = dt?.files;
             
             if (files && files.length > 0) {
-                fileInput.files = files; // Sync the dropped file to input
-                handleFileSelection(files[0]); // Run unified logic
+                fileInput.files = files;
+                handleFileSelection(files[0]);
             }
         });
 
@@ -419,8 +372,9 @@
                 return;
             }
 
+            // UI State - Loading
             detectBtn.disabled = true;
-            detectBtn.innerText = "Analyzing...";
+            document.getElementById('btnText').textContent = "Processing...";
             loadingText.style.display = 'block';
             resultArea.style.display = 'none';
 
@@ -428,6 +382,7 @@
             formData.append('image', file);
 
             try {
+                // Send to the single /detect endpoint
                 const response = await fetch('/detect', {
                     method: 'POST',
                     body: formData
@@ -436,43 +391,43 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    // FIX 3: Check if URL is base64. If it is, DO NOT append timestamp, it breaks data URIs.
+                    // Handle image cache busting
                     const isBase64 = data.image_url.startsWith('data:');
                     const cacheBuster = isBase64 ? '' : (data.image_url.includes('?') ? '&t=' : '?t=') + new Date().getTime();
                     
                     resultImg.src = data.image_url + cacheBuster;
                     
-                    // Show detection info
-                    let infoHTML = `<h4>🎯 Detections Found: ${data.count}</h4>`;
+                    // Render list of detections
+                    let infoHTML = `<h4>📊 Found ${data.count} Objects:</h4>`;
                     
                     if (data.count > 0 && data.detections) {
                         infoHTML += '<ul class="detection-list">';
                         data.detections.forEach(det => {
-                            // Safe navigation in case class is undefined
-                            const className = det.class ? det.class.replace(/_/g, ' ') : 'Unknown';
                             infoHTML += `
                                 <li class="detection-item">
-                                    <span class="detection-name">${className}</span>
+                                    <span class="detection-name">${det.class}</span>
                                     <span class="detection-confidence">${(det.confidence * 100).toFixed(1)}%</span>
                                 </li>
                             `;
                         });
                         infoHTML += '</ul>';
                     } else {
-                        infoHTML += '<p class="no-detection">No architectural features detected. Try a different image or test with zero-shot prompts.</p>';
+                        infoHTML += `<p style="color: #e74c3c; text-align: center; margin-top: 10px;">
+                            No architectural features detected. Try a clearer image or a different angle.
+                        </p>`;
                     }
                     
                     detectionInfo.innerHTML = infoHTML;
                     resultArea.style.display = 'block';
                 } else {
-                    alert("❌ Error: " + (data.error || "Unknown error"));
+                    alert("❌ Server Error: " + (data.error || "Unknown error"));
                 }
             } catch (err) {
                 console.error(err);
-                alert("❌ Failed to connect to backend. Make sure the server is running.");
+                alert("❌ Connection Failed. Is the backend server running?");
             } finally {
                 detectBtn.disabled = false;
-                detectBtn.innerText = "🔍 Detect Architectural Features";
+                document.getElementById('btnText').textContent = "🔍 Analyze Architecture";
                 loadingText.style.display = 'none';
             }
         }

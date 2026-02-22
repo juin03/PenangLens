@@ -1,0 +1,9 @@
+
+===== DEBUG: Processing 2 messages =====
+  [0] SystemMessage: content=You are a helpful AI travel assistant for Penang, Malaysia. 
+Your job is to help users plan their tr..., tool_calls=0
+      -> ADDED (SystemMessage)
+  [1] HumanMessage: content=yes..., tool_calls=0
+      -> ADDED (HumanMessage)
+  Result: 2 messages after filtering
+===== END DEBUG =====

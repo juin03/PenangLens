@@ -1,0 +1,16 @@
+[project]
+name = "penang-lens-agent"
+version = "0.1.0"
+description = "AI Agent for Penang Travel Itinerary Planning"
+requires-python = ">=3.10"
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langchain-google-genai>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

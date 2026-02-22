@@ -1,0 +1,159 @@
+[
+  {
+    "id": "L01",
+    "name": "Fort Cornwallis",
+    "description": "The largest standing fort in Malaysia, built by the British East India Company",
+    "significance": "Historical landmark where Captain Francis Light first landed in 1786",
+    "tags": [
+      "history",
+      "heritage"
+    ],
+    "location": "Jalan Tun Syed Sheh Barakbah, George Town, Penang",
+    "avg_duration_min": 60,
+    "opening_hours": "08:00-23:00"
+  },
+  {
+    "id": "L02",
+    "name": "Penang Street Art",
+    "description": "World-famous street murals by Ernest Zacharevic and local artists scattered throughout George Town's heritage streets",
+    "significance": "Iconic Instagram spots that helped revitalize George Town tourism since 2012",
+    "must_see": [
+      "Kids on Bicycle (Armenian St) - Interactive mural with real bicycle",
+      "Boy on Chair (Armenian St) - Child reaching for window",
+      "Little Girl in Blue (Armenian St)",
+      "Brother and Sister on a Swing (Lebuh Chulia)",
+      "Old Motorcycle (Lebuh Ah Quee)",
+      "Cat murals and 101 Lost Kittens wire sculptures",
+      "Evolution mural (Love Lane)",
+      "Trishaw Man caricature"
+    ],
+    "visitor_tips": "Best visited early morning (7-9 AM) to avoid crowds; start at Armenian Street; many murals are scattered across 1.5km area",
+    "tags": [
+      "art",
+      "outdoor",
+      "photography"
+    ],
+    "location": "Armenian Street, George Town, Penang",
+    "avg_duration_min": 45,
+    "opening_hours": "24 hours"
+  },
+  {
+    "id": "L03",
+    "name": "Kek Lok Si Temple",
+    "description": "Largest Buddhist temple in Malaysia with stunning architecture and hilltop views",
+    "significance": "One of Southeast Asia's most beautiful temples, featuring a 7-tier pagoda",
+    "visitor_tips": "Visit during Chinese New Year for stunning light displays; wear comfortable shoes for climbing",
+    "tags": [
+      "heritage",
+      "culture",
+      "outdoor"
+    ],
+    "location": "Air Itam, Penang",
+    "avg_duration_min": 90,
+    "opening_hours": "08:00-18:00"
+  },
+  {
+    "id": "L04",
+    "name": "Penang Hill",
+    "description": "Colonial-era hill station 821m above sea level offering panoramic island views",
+    "significance": "Oldest funicular railway in Malaysia; escape from tropical heat with cooler temperatures",
+    "visitor_tips": "Take funicular train early morning or late afternoon to avoid queues; bring a light jacket",
+    "tags": [
+      "nature",
+      "outdoor",
+      "scenic"
+    ],
+    "location": "Bukit Bendera, Penang",
+    "avg_duration_min": 120,
+    "opening_hours": "06:30-23:00"
+  },
+  {
+    "id": "L05",
+    "name": "Clan Jetties",
+    "description": "Historic waterfront Chinese settlements built on stilts over the sea",
+    "significance": "Last remaining Chinese clan jetties in Southeast Asia, dating back to the 19th century",
+    "visitor_tips": "Visit Chew Jetty (most touristy) or Tan Jetty (more authentic); respect residents' privacy",
+    "tags": [
+      "heritage",
+      "culture",
+      "outdoor"
+    ],
+    "location": "Pengkalan Weld, George Town, Penang",
+    "avg_duration_min": 45,
+    "opening_hours": "24 hours"
+  },
+  {
+    "id": "L06",
+    "name": "Khoo Kongsi",
+    "description": "Ornate Chinese clan house with intricate carvings and elaborate architecture",
+    "significance": "One of the most impressive clan temples in Malaysia, showcasing Fujian heritage",
+    "visitor_tips": "Don't miss the photo museum upstairs; entry fee RM10 for adults",
+    "tags": [
+      "history",
+      "heritage",
+      "culture"
+    ],
+    "location": "Cannon Square, George Town, Penang",
+    "avg_duration_min": 45,
+    "opening_hours": "09:00-17:00"
+  },
+  {
+    "id": "L07",
+    "name": "Penang National Park",
+    "description": "Smallest national park in the world with pristine beaches and jungle trails",
+    "significance": "Home to endangered species and featuring the iconic turtle beach and lighthouse",
+    "visitor_tips": "Bring water and wear hiking shoes; popular trails include Monkey Beach (1.5hr) and Turtle Beach (2hr)",
+    "tags": [
+      "nature",
+      "outdoor",
+      "adventure"
+    ],
+    "location": "Teluk Bahang, Penang",
+    "avg_duration_min": 180,
+    "opening_hours": "08:00-17:00"
+  },
+  {
+    "id": "L08",
+    "name": "Gurney Drive Hawker Centre",
+    "description": "Famous open-air hawker center serving authentic Penang street food",
+    "significance": "One of the best places to experience Penang's diverse culinary heritage",
+    "visitor_tips": "Best visited for dinner (6-10 PM); try char kway teow, rojak, and cendol",
+    "tags": [
+      "food",
+      "outdoor"
+    ],
+    "location": "Gurney Drive, George Town, Penang",
+    "avg_duration_min": 60,
+    "opening_hours": "18:00-02:00"
+  },
+  {
+    "id": "L09",
+    "name": "Cheong Fatt Tze Mansion",
+    "description": "Stunning indigo-blue mansion of Chinese tycoon, now a boutique hotel and museum",
+    "significance": "Won UNESCO Asia-Pacific Heritage Award; rare example of traditional Chinese courtyard architecture",
+    "visitor_tips": "Guided tours only at 11 AM and 2 PM; book in advance",
+    "tags": [
+      "history",
+      "heritage",
+      "culture"
+    ],
+    "location": "Leith Street, George Town, Penang",
+    "avg_duration_min": 60,
+    "opening_hours": "11:00-15:00"
+  },
+  {
+    "id": "L10",
+    "name": "Batu Ferringhi Beach",
+    "description": "Popular beach resort area with water sports and night market",
+    "significance": "Penang's premier beach destination with sunset views",
+    "visitor_tips": "Visit the night market (6-11 PM) for souvenirs; best swimming during calm mornings",
+    "tags": [
+      "beach",
+      "outdoor",
+      "nature"
+    ],
+    "location": "Batu Ferringhi, Penang",
+    "avg_duration_min": 120,
+    "opening_hours": "24 hours"
+  }
+]

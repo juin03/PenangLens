@@ -143,7 +143,7 @@ def find_and_draw_details(image_path: str, prompts: list, output_filename: str =
     print(f"  -> Setting search prompts: {prompts}")
     model.set_classes(prompts)
     
-    # 3. Run prediction on the image
+    # 3. Running prediction on the image
     print("  -> Running model prediction...")
     results = model.predict(image_path, conf=0.05) # Lowered confidence for testing detailed features
     
