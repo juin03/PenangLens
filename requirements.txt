@@ -2,58 +2,58 @@
 # This file includes all dependencies for both Agent and VisionML projects.
 
 # --- Core Infrastructure & Web ---
-fastapi==0.124.2
-uvicorn==0.38.0
-python-multipart==0.0.20
-python-dotenv==1.2.1
-requests==2.32.5
-PyYAML==6.0.3
-pydantic==2.12.5
-pydantic_core==2.41.5
-starlette==0.50.0
+fastapi
+uvicorn
+python-multipart
+python-dotenv
+requests
+PyYAML
+pydantic
+pydantic_core
+starlette
 
 # --- Agent & LLM (Agent folder) ---
-langchain==1.1.3
-langchain-core==1.1.3
-langchain-google-genai==4.0.0
-langgraph==1.0.4
-langgraph-checkpoint==3.0.1
-langgraph-prebuilt==1.0.5
-langgraph-sdk==0.2.15
-langsmith==0.4.59
-google-auth==2.43.0
-google-genai==1.55.0
+langchain
+langchain-core
+langchain-google-genai
+langgraph
+langgraph-checkpoint
+langgraph-prebuilt
+langgraph-sdk
+langsmith
+google-auth
+google-genai
 
 # --- Computer Vision & AI (VisionML folder) ---
-ultralytics==8.3.235
-roboflow==1.2.11
-opencv-python==4.12.0.88
-pillow==11.3.0
-matplotlib==3.10.7
-numpy==2.2.6
-scipy==1.16.3
-tqdm==4.67.1
-transformers==4.57.3
-huggingface-hub==0.36.0
-safetensors==0.7.0
-accelerate==1.12.0
-peft==0.18.0
+ultralytics
+roboflow
+opencv-python
+pillow
+matplotlib
+numpy
+scipy
+tqdm
+transformers
+huggingface-hub
+safetensors
+accelerate
+peft
 
 # --- AI Search & Cloud ---
-azure-search-documents==11.7.0b2
-azure-common==1.1.28
-azure-core==1.36.0
+azure-search-documents
+azure-common
+azure-core
 
 # --- Specialized Dependencies ---
 clip @ git+https://github.com/ultralytics/CLIP.git@4f352ca0a7450598833a770314f73e1f74e05f30
-ftfy==6.3.1
-regex==2025.11.3
-polars==1.36.0
-polars-runtime-32==1.36.0
+ftfy
+regex
+polars
+polars-runtime-32
 
 # --- PyTorch (CUDA 12.6) ---
 # NOTE: These are hardware specific. If you move machines, you may need to reinstall.
 --extra-index-url https://download.pytorch.org/whl/cu126
-torch==2.9.1+cu126
-torchaudio==2.9.1+cu126
-torchvision==0.24.1+cu126
+torch
+torchaudio
+torchvision
