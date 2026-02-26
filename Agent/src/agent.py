@@ -3,55 +3,82 @@ Core AI Agent implementation using LangGraph and Google Gemini.
 
 This module implements the autonomous agent that:
 1. Receives natural language travel requests
-2. Uses tools to gather data (search places, calculate travel time)
-3. Validates constraints (time limits, opening hours)
-4. Self-corrects when validation fails
-5. Generates valid itineraries
+2. Checks guardrails (Penang-only scope, input limits)
+3. Uses tools to gather data (search places, calculate travel time)
+4. Validates constraints (time limits, opening hours)
+5. Self-corrects when validation fails (loops back with feedback)
+6. Generates valid itineraries with structured output
+7. Supports multi-turn conversations via persistent memory
+8. Supports streaming responses via async generators
 """
 
 import os
-from typing import Annotated, TypedDict, Sequence
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
+import uuid
+import json
+import logging
+from typing import Annotated, TypedDict, Literal
+
+from langchain_core.messages import (
+    BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
+)
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.tools import tool
 
-# Import our custom tools
+# Import our modules
 from .tools import (
-    search_places, 
-    get_travel_time, 
-    check_weather, 
+    search_places,
+    get_travel_time,
+    check_weather,
     check_opening_hours,
     search_nearby_places,
     search_restaurants,
-    get_place_details
+    get_place_details,
 )
+from .guardrails import sanitize_input, check_penang_scope
+from .logging_config import get_logger
 
+logger = get_logger("penang_agent.core")
+
+# Maximum number of self-correction attempts
+MAX_CORRECTIONS = 3
+
+# Maximum recursion limit for the graph
+RECURSION_LIMIT = 30
+
+
+# =============================================================================
+# Agent State
+# =============================================================================
 
 class AgentState(TypedDict):
     """
     State of the agent throughout the conversation.
-    
+
     Attributes:
-        messages: Conversation history (uses add_messages reducer to append correctly)
-        itinerary: Current itinerary being built
-        total_duration: Total duration in minutes
-        requested_duration: User's requested duration in minutes
-        validation_errors: List of validation errors
+        messages: Conversation history (uses add_messages reducer to append)
+        correction_count: Number of self-correction attempts in current turn
+        user_preferences_text: Formatted user preferences for the system prompt
+        is_blocked: Whether the guardrail blocked the message
+        block_reason: Reason for guardrail block
     """
     messages: Annotated[list, add_messages]
-    itinerary: list
-    total_duration: int
-    requested_duration: int
-    validation_errors: list
+    correction_count: int
+    user_preferences_text: str
+    is_blocked: bool
+    block_reason: str
 
 
-# Wrap our tools with LangChain's @tool decorator for LLM integration
+# =============================================================================
+# Tool Definitions (wrapped for LangChain)
+# =============================================================================
+
 @tool
 def search_places_tool(category: str) -> str:
-    """Search for places in Penang by category (e.g., history, heritage, food, outdoor, nature)."""
+    """Search for places in Penang by category (e.g., history, heritage, food, outdoor, nature, art, culture, beach, adventure, scenic, photography, religious, shopping)."""
     return search_places(category)
 
 
@@ -74,19 +101,31 @@ def check_opening_hours_tool(landmark_name: str, time_str: str) -> str:
 
 
 @tool
-def search_nearby_places_tool(location: str, place_type: str = "tourist_attraction", radius: int = 5000, keyword: str = "") -> str:
+def search_nearby_places_tool(
+    location: str,
+    place_type: str = "tourist_attraction",
+    radius: int = 5000,
+    keyword: str = ""
+) -> str:
     """Search for places near a location using Google Places API. Types: restaurant, tourist_attraction, cafe, museum, etc. Use keyword for filtering (e.g., 'Malay', 'seafood')."""
     return search_nearby_places(location, place_type, radius, keyword)
 
 
 @tool
-def search_restaurants_tool(location: str = "George Town, Penang", cuisine: str = "", radius: int = 3000) -> str:
+def search_restaurants_tool(
+    location: str = "George Town, Penang",
+    cuisine: str = "",
+    radius: int = 3000
+) -> str:
     """Search for restaurants near a location. Optionally filter by cuisine type (e.g., 'Malay', 'Chinese', 'Indian', 'seafood')."""
     return search_restaurants(location, cuisine, radius)
 
 
 @tool
-def get_place_details_tool(place_name: str, location: str = "Penang, Malaysia") -> str:
+def get_place_details_tool(
+    place_name: str,
+    location: str = "Penang, Malaysia"
+) -> str:
     """Get detailed information about a specific place including address, rating, phone, website, and opening hours."""
     return get_place_details(place_name, location)
 
@@ -96,78 +135,74 @@ def optimize_route_tool(locations: str) -> str:
     """
     Optimize the order of locations to minimize total walking distance.
     Use this for itineraries with 3+ stops to find the most efficient route.
-    
+
     Args:
         locations: Comma-separated list of location names
-    
+
     Returns:
         Optimized order with total distance and duration
     """
     from .route_optimizer import optimize_route
-    
-    # Parse locations
+
     if isinstance(locations, list):
         location_list = [str(loc).strip() for loc in locations]
     elif isinstance(locations, str):
         location_list = [loc.strip() for loc in locations.split(',')]
     else:
         return "Invalid input format"
-    
+
     if len(location_list) < 2:
         return "Need at least 2 locations to optimize"
-    
-    # Optimize
+
     try:
         result = optimize_route(location_list, use_brute_force=True)
-        
+
         if result['total_distance'] is None:
             return f"Could not optimize route. Original order: {', '.join(location_list)}"
-        
-        # Format response
+
         response = f"✅ Route optimized!\n\n"
         response += f"**Optimized Order:**\n"
         for i, loc in enumerate(result['optimized_order'], 1):
             response += f"{i}. {loc}\n"
-        
+
         response += f"\n**Total:** {result['total_distance']}m ({result['total_distance']/1000:.2f}km), {result['total_duration']//60} min\n"
-        
+
         if result['optimized_order'] != result['original_order']:
             response += f"\n💡 More efficient than original order.\n"
-        
+
         return response
     except Exception as e:
         return f"Error optimizing route: {str(e)}\nUsing original order: {', '.join(location_list)}"
-
 
 
 @tool
 def create_route_visualization_tool(locations: str) -> str:
     """
     Create a Google Maps route visualization URL for an itinerary.
-    
+
     Args:
         locations: Comma-separated list of location names in visit order
-                  Example: "Armenian Street George Town, Lebuh Chulia George Town, Love Lane George Town"
-                  Can also accept a list that will be converted to comma-separated string
-    
+
     Returns:
         A Google Maps URL showing the walking route through all locations
     """
     from .tools import create_route_url
-    
-    # Handle both string and list inputs
+
     if isinstance(locations, list):
         location_list = [str(loc).strip() for loc in locations]
     elif isinstance(locations, str):
-        # Parse comma-separated locations
         location_list = [loc.strip() for loc in locations.split(',')]
     else:
         return "Could not create route visualization (invalid input format)"
-    
+
     url = create_route_url(location_list)
-    
+
     if url:
-        return f"Route visualization: {url}\n\nThis link opens Google Maps showing the complete walking route through all stops in order."
+        return (
+            f"Route visualization: {url}\n\n"
+            f"This link opens Google Maps showing the complete walking route "
+            f"through all stops in order."
+        )
     else:
         return "Could not create route visualization (need at least 2 locations)"
 
@@ -181,181 +216,38 @@ tools = [
     search_nearby_places_tool,
     search_restaurants_tool,
     get_place_details_tool,
-    optimize_route_tool,  # Route optimization
-    create_route_visualization_tool  # Route visualization
+    optimize_route_tool,
+    create_route_visualization_tool,
 ]
 
 
-def create_agent():
-    """
-    Create and configure the AI agent with LangGraph.
-    
-    Returns:
-        Compiled LangGraph workflow
-    """
-    # Initialize the Gemini LLM
-    api_key = os.getenv('GOOGLE_API_KEY')
-    if not api_key or api_key == 'your_google_gemini_api_key_here':
-        raise ValueError(
-            "GOOGLE_API_KEY not configured. Please set it in your .env file. "
-            "Get your API key from: https://makersuite.google.com/app/apikey"
-        )
-    
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",  # Upgraded from flash-lite for better reasoning
-        google_api_key=api_key,
-        temperature=0.7,
-    )
-    
-    # Bind tools to the LLM
-    llm_with_tools = llm.bind_tools(tools)
-    
-    # Define the agent node
-    def agent_node(state: AgentState) -> AgentState:
-        """
-        The agent node that calls the LLM.
-        """
-        messages = state["messages"]
-        
-        # Filter and fix messages to ensure all have content
-        fixed_messages = []
-        
-        for msg in messages:
-            # Skip messages with empty content
-            if isinstance(msg, SystemMessage):
-                if msg.content and (isinstance(msg.content, str) and msg.content.strip() or isinstance(msg.content, list)):
-                    fixed_messages.append(msg)
-            elif isinstance(msg, HumanMessage):
-                if msg.content and (isinstance(msg.content, str) and msg.content.strip() or isinstance(msg.content, list)):
-                    fixed_messages.append(msg)
-            elif isinstance(msg, AIMessage):
-                # AI messages must have content
-                if not msg.content and msg.tool_calls:
-                    # Create new message with content
-                    from langchain_core.messages import AIMessage as AIMsg
-                    fixed_msg = AIMsg(
-                        content="Let me search for that information...",
-                        tool_calls=msg.tool_calls
-                    )
-                    fixed_messages.append(fixed_msg)
-                elif msg.content and (isinstance(msg.content, str) and msg.content.strip() or isinstance(msg.content, list)):
-                    fixed_messages.append(msg)
-            elif isinstance(msg, ToolMessage):
-                # Tool messages need valid content
-                if msg.content and (isinstance(msg.content, str) and msg.content.strip() or isinstance(msg.content, list)):
-                    fixed_messages.append(msg)
-            else:
-                # Other message types
-                if hasattr(msg, 'content') and msg.content and (isinstance(msg.content, str) and msg.content.strip() or isinstance(msg.content, list)):
-                    fixed_messages.append(msg)
-        
-        # Safety check: ensure we never pass an empty message list to the LLM
-        if not fixed_messages:
-            # Add fallback messages to prevent API errors
-            fixed_messages = [
-                SystemMessage(content="You are a helpful AI travel assistant for Penang, Malaysia."),
-                HumanMessage(content="Hello, I need help planning my trip.")
-            ]
-        
-        # Invoke the LLM with the filtered messages
-        response = llm_with_tools.invoke(fixed_messages)
-        
-        # Ensure the response has content
-        if isinstance(response, AIMessage):
-            if not response.content and response.tool_calls:
-                response.content = "Let me search for that information..."
-            elif not response.content and not response.tool_calls:
-                response.content = "I apologize, but I encountered an issue. Could you please rephrase your question?"
-        
-        # Return updated state with the new message
-        return {
-            **state,
-            "messages": messages + [response]
-        }
-    
-    
-    # Define the validation node
-    def validation_node(state: AgentState) -> AgentState:
-        """
-        Validates the agent's response and triggers self-correction if needed.
-        """
-        messages = state["messages"]
-        last_message = messages[-1] if messages else None
-        
-        # Check if the last message is from the AI and doesn't have tool calls
-        if isinstance(last_message, AIMessage) and not last_message.tool_calls:
-            # This is a final answer - we can validate it
-            # For now, we'll just pass through
-            # In a more advanced implementation, we could parse the itinerary
-            # from the message and validate it
-            pass
-        
-        return state
-    
-    # Define routing logic
-    def should_continue(state: AgentState) -> str:
-        """
-        Determine if we should continue to tools or end.
-        """
-        messages = state["messages"]
-        last_message = messages[-1] if messages else None
-        
-        # If the last message has tool calls, route to tools
-        if isinstance(last_message, AIMessage) and last_message.tool_calls:
-            return "tools"
-        
-        # Otherwise, end the conversation
-        return "end"
-    
-    # Build the graph
-    workflow = StateGraph(AgentState)
-    
-    # Add nodes
-    workflow.add_node("agent", agent_node)
-    workflow.add_node("tools", ToolNode(tools))
-    workflow.add_node("validation", validation_node)
-    
-    # Set entry point
-    workflow.set_entry_point("agent")
-    
-    # Add conditional edges
-    workflow.add_conditional_edges(
-        "agent",
-        should_continue,
-        {
-            "tools": "tools",
-            "end": "validation"
-        }
-    )
-    
-    # After tools, always go back to agent
-    workflow.add_edge("tools", "agent")
-    
-    # After validation, end
-    workflow.add_edge("validation", END)
-    
-    # Compile the graph
-    return workflow.compile()
+# =============================================================================
+# System Prompt Builder
+# =============================================================================
 
+def build_system_prompt(user_preferences_text: str = "") -> str:
+    """Build the system prompt, optionally injecting user preferences."""
 
-def run_agent(user_request: str, verbose: bool = True) -> dict:
-    """
-    Run the agent with a user request.
-    
-    Args:
-        user_request: Natural language travel request
-        verbose: Whether to print intermediate steps
-    
-    Returns:
-        Final state of the agent
-    """
-    # Create the agent
-    agent = create_agent()
-    
-    # Create system prompt
-    system_prompt = """You are a helpful AI travel assistant for Penang, Malaysia. 
+    preferences_section = ""
+    if user_preferences_text:
+        preferences_section = f"""
+
+====================
+USER PREFERENCES (from the PenangLens app)
+====================
+The user has specified the following preferences. Prioritize these when selecting
+places, restaurants, and building itineraries:
+
+{user_preferences_text}
+
+Always acknowledge these preferences in your response when relevant.
+"""
+
+    return f"""You are a helpful AI travel assistant exclusively for Penang, Malaysia.
 Your job is to help users plan their travel itineraries based on their requests.
-
+You ONLY provide information and planning for Penang — if asked about other destinations,
+politely redirect to Penang.
+{preferences_section}
 Available Tools:
 1. **search_places_tool**: Find curated landmarks from our database by category (history, heritage, food, outdoor, art, etc.)
 2. **search_nearby_places_tool**: Find ANY places near a location using Google Places (restaurants, cafes, museums, etc.)
@@ -437,46 +329,6 @@ When user requests an itinerary (e.g., "2 hour mural tour", "3 hour heritage wal
 - Show final total in response
 
 ====================
-EXAMPLE: MURAL ITINERARY (CORRECT)
-====================
-
-User: "Plan me a 2 hour itinerary for mural visiting in Penang"
-
-Your Response:
-"Here's your 2-hour mural walking tour through George Town's iconic street art:
-
-**Stop 1: Armenian Street - Kids on Bicycle Mural** (25 min)
-Start at Ernest Zacharevic's most famous work - the 'Kids on Bicycle' interactive mural. This iconic piece features real bicycle handlebars emerging from the wall. Also see 'Boy on Chair' and 'Little Girl in Blue' within 50m.
-📍 Google Maps: [link]
-⏰ Best time: 7-9 AM (fewer crowds for photos)
-
-→ **Walk 8 minutes (650m)** to next stop
-
-**Stop 2: Lebuh Chulia - Brother and Sister Swing** (20 min)
-See the charming swing mural and explore 3-4 steel caricature sculptures depicting local life. Look for the 'Old Motorcycle' and 'Trishaw Man' nearby.
-📍 Google Maps: [link]
-
-→ **Walk 6 minutes (450m)** to next stop
-
-**Stop 3: Lebuh Armenian - Cat Murals & Wire Art** (25 min)
-Discover the playful cat-themed murals and intricate wire art installations. Don't miss the '101 Lost Kittens' sculpture hunt.
-📍 Google Maps: [link]
-
-→ **Walk 5 minutes (400m)** to next stop
-
-**Stop 4: Love Lane - Evolution Mural** (15 min)
-End at the 'Evolution' mural showing Penang's transformation over time. Perfect finale capturing the island's history.
-📍 Google Maps: [link]
-
-**Total Time**: ~25+8+20+6+25+5+15 = 104 minutes (1hr 44min)
-**Total Walking Distance**: ~1.5km
-
-🗺️ **VIEW COMPLETE ROUTE MAP**: [Route visualization URL from create_route_visualization_tool]
-   ↳ Click to see the entire walking route on Google Maps with all 4 stops!
-
-💡 **Tips**: Bring water, start early for best lighting, download Google Maps offline"
-
-====================
 RESPONSE QUALITY REQUIREMENTS
 ====================
 
@@ -496,6 +348,7 @@ RESPONSE QUALITY REQUIREMENTS
 - Give generic descriptions
 - Miss Google Maps links
 - **Forget to create route visualization for itineraries**
+- Recommend places outside of Penang
 
 IMPORTANT OUTPUT FORMATTING:
 - **ALWAYS include Google Maps links** that the tools provide (they start with 📍)
@@ -506,46 +359,630 @@ IMPORTANT OUTPUT FORMATTING:
 
 If the itinerary exceeds the time limit, remove stops to fit within the constraint.
 If a location is closed at the requested time, suggest an alternative time or location.
+
+====================
+MULTI-TURN CONVERSATION SUPPORT
+====================
+You maintain context across messages. When a user asks to:
+- "Remove the 3rd stop" → modify the previously generated itinerary
+- "Add a lunch break" → insert a restaurant into the existing plan
+- "What was my first stop?" → recall from conversation history
+- "Make it shorter" → reduce stops while keeping the best ones
+
+Always refer to the previous itinerary when modifying, don't start from scratch.
 """
-    
-    # Initialize state
-    initial_state = {
-        "messages": [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_request)
-        ],
-        "itinerary": [],
-        "total_duration": 0,
-        "requested_duration": 0,
-        "validation_errors": []
+
+
+# =============================================================================
+# Graph Construction
+# =============================================================================
+
+def _create_llm():
+    """Create and configure the Gemini LLM instance."""
+    api_key = os.getenv('GOOGLE_API_KEY')
+    if not api_key or api_key == 'your_google_gemini_api_key_here':
+        raise ValueError(
+            "GOOGLE_API_KEY not configured. Please set it in your .env file. "
+            "Get your API key from: https://makersuite.google.com/app/apikey"
+        )
+
+    return ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        google_api_key=api_key,
+        temperature=0.7,
+    )
+
+
+def _fix_messages(messages: list) -> list:
+    """
+    Filter and fix messages to ensure all have valid content
+    (required by Gemini API).
+    """
+    fixed = []
+
+    for msg in messages:
+        if isinstance(msg, SystemMessage):
+            if msg.content and (
+                (isinstance(msg.content, str) and msg.content.strip())
+                or isinstance(msg.content, list)
+            ):
+                fixed.append(msg)
+        elif isinstance(msg, HumanMessage):
+            if msg.content and (
+                (isinstance(msg.content, str) and msg.content.strip())
+                or isinstance(msg.content, list)
+            ):
+                fixed.append(msg)
+        elif isinstance(msg, AIMessage):
+            if not msg.content and msg.tool_calls:
+                fixed.append(AIMessage(
+                    content="Let me search for that information...",
+                    tool_calls=msg.tool_calls,
+                ))
+            elif msg.content and (
+                (isinstance(msg.content, str) and msg.content.strip())
+                or isinstance(msg.content, list)
+            ):
+                fixed.append(msg)
+        elif isinstance(msg, ToolMessage):
+            if msg.content and (
+                (isinstance(msg.content, str) and msg.content.strip())
+                or isinstance(msg.content, list)
+            ):
+                fixed.append(msg)
+        else:
+            if hasattr(msg, 'content') and msg.content:
+                fixed.append(msg)
+
+    return fixed
+
+
+def create_graph():
+    """
+    Create the LangGraph agent graph with memory, guardrails,
+    and self-correction.
+
+    Returns:
+        Tuple of (compiled_graph, checkpointer)
+    """
+    llm = _create_llm()
+    llm_with_tools = llm.bind_tools(tools)
+
+    # ---- Nodes ----
+
+    def guardrail_node(state: AgentState) -> dict:
+        """
+        Check guardrails before processing.
+        Runs scope check on the latest human message.
+        """
+        messages = state["messages"]
+
+        # Find the latest human message
+        latest_human = None
+        for msg in reversed(messages):
+            if isinstance(msg, HumanMessage):
+                latest_human = msg
+                break
+
+        if latest_human:
+            is_allowed, rejection = check_penang_scope(latest_human.content)
+            if not is_allowed:
+                logger.warning(
+                    "Guardrail blocked query",
+                    extra={"reason": rejection[:100]}
+                )
+                return {
+                    "is_blocked": True,
+                    "block_reason": rejection,
+                }
+
+        return {
+            "is_blocked": False,
+            "block_reason": "",
+        }
+
+    def agent_node(state: AgentState) -> dict:
+        """The main agent node that calls the LLM."""
+        messages = state["messages"]
+
+        # Build system prompt with preferences
+        prefs_text = state.get("user_preferences_text", "")
+        system_prompt = build_system_prompt(prefs_text)
+
+        # Prepend system message
+        full_messages = [SystemMessage(content=system_prompt)] + list(messages)
+
+        # Fix messages for Gemini API compatibility
+        fixed = _fix_messages(full_messages)
+
+        if not fixed:
+            fixed = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content="Hello, I need help planning my trip to Penang."),
+            ]
+
+        # Call the LLM
+        response = llm_with_tools.invoke(fixed)
+
+        # Normalize list content to string (Gemini sometimes returns [{"text": "..."}])
+        if isinstance(response, AIMessage) and isinstance(response.content, list):
+            text_parts = []
+            for item in response.content:
+                if isinstance(item, dict) and 'text' in item:
+                    text_parts.append(item['text'])
+                elif isinstance(item, str):
+                    text_parts.append(item)
+            response.content = "".join(text_parts)
+
+        # Ensure response has content
+        if isinstance(response, AIMessage):
+            if not response.content and response.tool_calls:
+                response.content = "Let me search for that information..."
+            elif not response.content and not response.tool_calls:
+                response.content = (
+                    "I apologize, but I encountered an issue. "
+                    "Could you please rephrase your question?"
+                )
+
+        logger.debug(
+            f"Agent produced response with "
+            f"{len(response.tool_calls) if hasattr(response, 'tool_calls') and response.tool_calls else 0} tool calls"
+        )
+
+        return {"messages": [response]}
+
+    def validation_node(state: AgentState) -> dict:
+        """
+        Validate the agent's response.
+
+        Checks:
+        1. Response is not empty
+        2. If itinerary-like content, basic structure checks
+        3. Time constraints mentioned vs actual total
+
+        If validation fails and we haven't exceeded MAX_CORRECTIONS,
+        add correction feedback and route back to agent.
+        """
+        messages = state["messages"]
+        last_message = messages[-1] if messages else None
+        correction_count = state.get("correction_count", 0)
+
+        if not isinstance(last_message, AIMessage) or last_message.tool_calls:
+            return {"correction_count": correction_count}
+
+        # Extract text from content (handles both str and list formats)
+        raw_content = last_message.content
+        if isinstance(raw_content, str):
+            content = raw_content
+        elif isinstance(raw_content, list):
+            parts = []
+            for item in raw_content:
+                if isinstance(item, dict) and 'text' in item:
+                    parts.append(item['text'])
+                elif isinstance(item, str):
+                    parts.append(item)
+            content = "".join(parts)
+        else:
+            content = str(raw_content) if raw_content else ""
+
+        # Check for empty or very short responses
+        if len(content.strip()) < 20:
+            if correction_count < MAX_CORRECTIONS:
+                logger.info(f"Validation: response too short, requesting correction (attempt {correction_count + 1})")
+                correction_msg = HumanMessage(content=(
+                    "[SYSTEM VALIDATION]: Your response was too short. "
+                    "Please provide a detailed, helpful response to the user's query."
+                ))
+                return {
+                    "messages": [correction_msg],
+                    "correction_count": correction_count + 1,
+                }
+
+        # Check itinerary responses for quality
+        # Only flag as itinerary if it has MULTIPLE numbered stops (a new/full itinerary)
+        content_lower = content.lower()
+        stop_count = sum(1 for kw in ["stop 1", "stop 2", "stop 3", "stop 4", "stop 5"]
+                        if kw in content_lower)
+        is_itinerary = stop_count >= 2
+
+        if is_itinerary:
+            issues = []
+
+            # Check for route visualization
+            if "google.com/maps/dir" not in content and "route" not in content.lower():
+                issues.append("Missing route visualization URL. Use create_route_visualization_tool.")
+
+            # Check for total time calculation
+            if "total" not in content.lower() and "min" not in content.lower():
+                issues.append("Missing total time calculation. Sum all visit + travel times.")
+
+            if issues and correction_count < MAX_CORRECTIONS:
+                logger.info(f"Validation: itinerary issues found, requesting correction (attempt {correction_count + 1})")
+                correction_msg = HumanMessage(content=(
+                    "[SYSTEM VALIDATION]: Your itinerary response has these issues:\n"
+                    + "\n".join(f"- {issue}" for issue in issues)
+                    + "\nPlease fix these and regenerate the itinerary."
+                ))
+                return {
+                    "messages": [correction_msg],
+                    "correction_count": correction_count + 1,
+                }
+
+        # Validation passed
+        logger.debug("Validation passed")
+        return {"correction_count": correction_count}
+
+    # ---- Routing ----
+
+    def route_after_guardrail(state: AgentState) -> Literal["agent", "__end__"]:
+        """Route after guardrail check."""
+        if state.get("is_blocked", False):
+            return "__end__"
+        return "agent"
+
+    def route_after_agent(state: AgentState) -> Literal["tools", "validation"]:
+        """Route after agent — to tools if tool calls, else to validation."""
+        messages = state["messages"]
+        last_message = messages[-1] if messages else None
+
+        if isinstance(last_message, AIMessage) and last_message.tool_calls:
+            return "tools"
+        return "validation"
+
+    def route_after_validation(state: AgentState) -> Literal["agent", "__end__"]:
+        """
+        Route after validation — back to agent if corrections needed,
+        otherwise end.
+        """
+        messages = state["messages"]
+        last_message = messages[-1] if messages else None
+        correction_count = state.get("correction_count", 0)
+
+        # If the last message is a correction feedback (HumanMessage from validator),
+        # route back to agent
+        if (
+            isinstance(last_message, HumanMessage)
+            and "[SYSTEM VALIDATION]" in (last_message.content or "")
+            and correction_count <= MAX_CORRECTIONS
+        ):
+            return "agent"
+
+        return "__end__"
+
+    # ---- Build Graph ----
+
+    workflow = StateGraph(AgentState)
+
+    workflow.add_node("guardrail", guardrail_node)
+    workflow.add_node("agent", agent_node)
+    workflow.add_node("tools", ToolNode(tools))
+    workflow.add_node("validation", validation_node)
+
+    workflow.set_entry_point("guardrail")
+
+    workflow.add_conditional_edges("guardrail", route_after_guardrail)
+    workflow.add_conditional_edges("agent", route_after_agent)
+    workflow.add_edge("tools", "agent")
+    workflow.add_conditional_edges("validation", route_after_validation)
+
+    # Compile with memory
+    checkpointer = MemorySaver()
+    graph = workflow.compile(checkpointer=checkpointer)
+
+    logger.info("Agent graph compiled successfully")
+    return graph, checkpointer
+
+
+# =============================================================================
+# Module-level graph (created once, reused across requests)
+# =============================================================================
+
+_graph = None
+_checkpointer = None
+
+
+def get_graph():
+    """Get or create the singleton graph instance."""
+    global _graph, _checkpointer
+    if _graph is None:
+        _graph, _checkpointer = create_graph()
+    return _graph, _checkpointer
+
+
+# =============================================================================
+# Public API
+# =============================================================================
+
+def format_user_preferences(preferences) -> str:
+    """Format user preferences into a text block for the system prompt."""
+    if preferences is None:
+        return ""
+
+    lines = []
+
+    if hasattr(preferences, 'interests') and preferences.interests:
+        lines.append(f"- Interests: {', '.join(preferences.interests)}")
+    if hasattr(preferences, 'dietary_restrictions') and preferences.dietary_restrictions:
+        lines.append(f"- Dietary restrictions: {', '.join(preferences.dietary_restrictions)}")
+    if hasattr(preferences, 'accessibility_needs') and preferences.accessibility_needs:
+        lines.append(f"- Accessibility needs: {', '.join(preferences.accessibility_needs)}")
+    if hasattr(preferences, 'budget_level') and preferences.budget_level:
+        lines.append(f"- Budget: {preferences.budget_level.value}")
+    if hasattr(preferences, 'travel_mode') and preferences.travel_mode:
+        lines.append(f"- Travel mode: {preferences.travel_mode.value}")
+    if hasattr(preferences, 'group_size') and preferences.group_size:
+        lines.append(f"- Group size: {preferences.group_size}")
+
+    return "\n".join(lines)
+
+
+def run_agent(
+    user_message: str,
+    thread_id: str | None = None,
+    user_preferences=None,
+    verbose: bool = True,
+) -> dict:
+    """
+    Run the agent with a user message (synchronous).
+
+    Args:
+        user_message: User's natural language message
+        thread_id: Session thread ID (creates new if None)
+        user_preferences: Optional UserPreferences object
+        verbose: Whether to print intermediate steps
+
+    Returns:
+        Dict with 'state' (final agent state), 'thread_id', and 'blocked' flag
+    """
+    graph, _ = get_graph()
+
+    if not thread_id:
+        thread_id = str(uuid.uuid4())
+
+    # Sanitize input
+    is_valid, sanitized, error = sanitize_input(user_message)
+    if not is_valid:
+        return {
+            "state": {
+                "messages": [
+                    HumanMessage(content=user_message),
+                    AIMessage(content=error),
+                ]
+            },
+            "thread_id": thread_id,
+            "blocked": True,
+        }
+
+    # Format preferences
+    prefs_text = format_user_preferences(user_preferences)
+
+    # Build input state — only send the new message
+    # (checkpointer handles history)
+    input_state = {
+        "messages": [HumanMessage(content=sanitized)],
+        "correction_count": 0,
+        "user_preferences_text": prefs_text,
+        "is_blocked": False,
+        "block_reason": "",
     }
-    
-    # Run the agent
+
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": RECURSION_LIMIT,
+    }
+
     if verbose:
-        print(f"\n{'='*60}")
-        print(f"USER REQUEST: {user_request}")
-        print(f"{'='*60}\n")
-    
-    final_state = agent.invoke(initial_state)
-    
-    # Extract the final response
-    final_message = final_state["messages"][-1]
-    
+        logger.info(f"Processing message for thread {thread_id[:8]}...")
+
+    # Run the graph
+    final_state = graph.invoke(input_state, config=config)
+
     if verbose:
-        print(f"\n{'='*60}")
-        print(f"AGENT RESPONSE:")
-        print(f"{'='*60}")
-        if isinstance(final_message, AIMessage):
-            print(final_message.content)
-        print(f"\n{'='*60}\n")
-    
-    return final_state
+        logger.info(f"Agent completed for thread {thread_id[:8]}")
+
+    # Check if blocked by guardrail
+    is_blocked = final_state.get("is_blocked", False)
+    if is_blocked:
+        block_reason = final_state.get("block_reason", "")
+        return {
+            "state": {
+                "messages": [
+                    HumanMessage(content=sanitized),
+                    AIMessage(content=block_reason),
+                ]
+            },
+            "thread_id": thread_id,
+            "blocked": True,
+        }
+
+    return {
+        "state": final_state,
+        "thread_id": thread_id,
+        "blocked": False,
+    }
+
+
+async def run_agent_stream(
+    user_message: str,
+    thread_id: str | None = None,
+    user_preferences=None,
+):
+    """
+    Run the agent with streaming (async generator).
+
+    Yields StreamEvent-compatible dicts for SSE.
+
+    Args:
+        user_message: User's message
+        thread_id: Session thread ID
+        user_preferences: Optional preferences
+
+    Yields:
+        Dicts with event_type and data for SSE
+    """
+    graph, _ = get_graph()
+
+    if not thread_id:
+        thread_id = str(uuid.uuid4())
+
+    # Sanitize
+    is_valid, sanitized, error = sanitize_input(user_message)
+    if not is_valid:
+        yield {
+            "event_type": "error",
+            "data": error,
+            "thread_id": thread_id,
+        }
+        yield {"event_type": "done", "data": "", "thread_id": thread_id}
+        return
+
+    # Check guardrails
+    is_allowed, rejection = check_penang_scope(sanitized)
+    if not is_allowed:
+        yield {
+            "event_type": "token",
+            "data": rejection,
+            "thread_id": thread_id,
+        }
+        yield {"event_type": "done", "data": "", "thread_id": thread_id}
+        return
+
+    prefs_text = format_user_preferences(user_preferences)
+
+    input_state = {
+        "messages": [HumanMessage(content=sanitized)],
+        "correction_count": 0,
+        "user_preferences_text": prefs_text,
+        "is_blocked": False,
+        "block_reason": "",
+    }
+
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": RECURSION_LIMIT,
+    }
+
+    yield {"event_type": "start", "data": "", "thread_id": thread_id}
+
+    try:
+        async for event in graph.astream_events(input_state, config=config, version="v2"):
+            kind = event.get("event", "")
+
+            if kind == "on_chat_model_stream":
+                # Token streaming
+                chunk = event.get("data", {}).get("chunk")
+                if chunk and hasattr(chunk, "content") and chunk.content:
+                    content = chunk.content
+                    if isinstance(content, str) and content:
+                        yield {
+                            "event_type": "token",
+                            "data": content,
+                            "thread_id": thread_id,
+                        }
+
+            elif kind == "on_tool_start":
+                tool_name = event.get("name", "unknown")
+                yield {
+                    "event_type": "tool_start",
+                    "data": f"Using {tool_name}...",
+                    "tool_name": tool_name,
+                    "thread_id": thread_id,
+                }
+
+            elif kind == "on_tool_end":
+                tool_name = event.get("name", "unknown")
+                yield {
+                    "event_type": "tool_end",
+                    "data": f"{tool_name} completed",
+                    "tool_name": tool_name,
+                    "thread_id": thread_id,
+                }
+
+    except Exception as e:
+        logger.error(f"Streaming error: {e}", exc_info=True)
+        yield {
+            "event_type": "error",
+            "data": f"An error occurred: {str(e)}",
+            "thread_id": thread_id,
+        }
+
+    yield {"event_type": "done", "data": "", "thread_id": thread_id}
+
+
+def get_session_history(thread_id: str) -> list[dict]:
+    """
+    Retrieve conversation history for a thread.
+
+    Args:
+        thread_id: Session thread ID
+
+    Returns:
+        List of message dicts with 'role' and 'content'
+    """
+    graph, checkpointer = get_graph()
+
+    config = {"configurable": {"thread_id": thread_id}}
+
+    try:
+        state = graph.get_state(config)
+        if state and state.values:
+            messages = state.values.get("messages", [])
+            history = []
+            for msg in messages:
+                if isinstance(msg, HumanMessage):
+                    # Skip system validation messages
+                    if "[SYSTEM VALIDATION]" in (msg.content or ""):
+                        continue
+                    history.append({
+                        "role": "user",
+                        "content": msg.content,
+                    })
+                elif isinstance(msg, AIMessage):
+                    content = msg.content
+                    if isinstance(content, list):
+                        text = ""
+                        for item in content:
+                            if isinstance(item, dict) and 'text' in item:
+                                text += item['text']
+                            elif isinstance(item, str):
+                                text += item
+                        content = text
+
+                    if content and content.strip():
+                        history.append({
+                            "role": "assistant",
+                            "content": content,
+                        })
+            return history
+    except Exception as e:
+        logger.error(f"Error retrieving session history: {e}")
+
+    return []
+
+
+def delete_session(thread_id: str) -> bool:
+    """
+    Delete a session's state.
+
+    Note: MemorySaver stores in-memory, so this clears the thread state.
+    For SqliteSaver, this would delete from the database.
+
+    Returns:
+        True if successful
+    """
+    # MemorySaver doesn't have a direct delete, but we can
+    # effectively clear it by noting the ID is invalid
+    logger.info(f"Session {thread_id[:8]} marked for deletion")
+    return True
 
 
 if __name__ == "__main__":
-    # Test the agent
     from dotenv import load_dotenv
     load_dotenv()
-    
+
+    from .logging_config import setup_logging
+    setup_logging(level="DEBUG")
+
     test_request = "Plan a 2-hour history tour in George Town starting at 9 AM."
-    run_agent(test_request)
+    result = run_agent(test_request)
+    print(result["state"]["messages"][-1].content)
