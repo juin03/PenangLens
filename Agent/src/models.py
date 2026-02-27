@@ -84,7 +84,11 @@ class ItineraryStop(BaseModel):
     """A single stop in a structured itinerary."""
     order: int = Field(description="Stop number (1-indexed)")
     name: str = Field(description="Name of the place")
-    description: str = Field(description="Brief description or why to visit")
+    short_description: str = Field(
+        default="",
+        description="One-line summary for card view (max 60 chars)"
+    )
+    description: str = Field(description="Full description with significance and details")
     lat: Optional[float] = Field(default=None, description="Latitude")
     lng: Optional[float] = Field(default=None, description="Longitude")
     visit_duration_min: int = Field(description="Recommended visit duration in minutes")
@@ -135,6 +139,10 @@ class ChatResponse(BaseModel):
         default=None,
         description="Structured itinerary data (only present for itinerary-related responses)"
     )
+    token_usage: Optional[dict] = Field(
+        default=None,
+        description="Token usage and estimated cost for this request"
+    )
     success: bool = Field(default=True)
 
 
@@ -168,3 +176,45 @@ class SessionHistoryResponse(BaseModel):
     thread_id: str
     messages: list[dict] = Field(default_factory=list, description="Conversation messages")
     message_count: int = Field(default=0)
+
+
+# =============================================================================
+# Generate Endpoint Models (for mobile app form)
+# =============================================================================
+
+class GenerateRequest(BaseModel):
+    """Request from the mobile app's 'Plan Your Trip' form."""
+    description: str = Field(
+        default="",
+        description="Free-text trip description, e.g. 'I have 3 hours near Armenian Street'"
+    )
+    interests: list[str] = Field(
+        default_factory=list,
+        description="Interest tags selected by user, e.g. ['Art', 'Food', 'History']"
+    )
+    start_date: Optional[str] = Field(default=None, description="Start date, e.g. '2025-10-19'")
+    end_date: Optional[str] = Field(default=None, description="End date")
+    start_time: str = Field(default="09:00", description="Start time in HH:MM format")
+    end_time: str = Field(default="17:00", description="End time in HH:MM format")
+    start_location: str = Field(
+        default="George Town, Penang",
+        description="Starting location name or 'Current Location'"
+    )
+    start_lat: Optional[float] = Field(default=None, description="Starting latitude")
+    start_lng: Optional[float] = Field(default=None, description="Starting longitude")
+    travel_mode: str = Field(default="walking", description="walking, driving, or transit")
+
+
+class GenerateResponse(BaseModel):
+    """Response for the generate endpoint, includes structured itinerary."""
+    response: str = Field(description="Agent's text response (markdown)")
+    thread_id: str = Field(description="Thread ID for continuing refinement")
+    structured_itinerary: Optional[ItineraryData] = Field(
+        default=None,
+        description="Structured itinerary data with lat/lng for map rendering"
+    )
+    token_usage: Optional[dict] = Field(
+        default=None,
+        description="Token usage and estimated cost for this request"
+    )
+    success: bool = Field(default=True)

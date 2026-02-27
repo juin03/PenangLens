@@ -16,6 +16,8 @@ import os
 import uuid
 import json
 import logging
+
+from .token_tracker import TokenTracker
 from typing import Annotated, TypedDict, Literal
 
 from langchain_core.messages import (
@@ -500,7 +502,6 @@ def create_graph():
                 SystemMessage(content=system_prompt),
                 HumanMessage(content="Hello, I need help planning my trip to Penang."),
             ]
-
         # Call the LLM
         response = llm_with_tools.invoke(fixed)
 
@@ -795,10 +796,25 @@ def run_agent(
             "blocked": True,
         }
 
+    # Track token usage from all AIMessages in the final state
+    tracker = TokenTracker()
+    messages = final_state.get("messages", [])
+    for msg in messages:
+        if isinstance(msg, AIMessage):
+            # LangChain stores usage at msg.usage_metadata (top-level)
+            um = getattr(msg, 'usage_metadata', None)
+            if um:
+                tracker.record_usage(
+                    thread_id=thread_id,
+                    usage_metadata=dict(um) if um else {},
+                )
+    token_usage = tracker.get_session_usage(thread_id)
+
     return {
         "state": final_state,
         "thread_id": thread_id,
         "blocked": False,
+        "token_usage": token_usage,
     }
 
 
@@ -898,6 +914,18 @@ async def run_agent_stream(
                     "thread_id": thread_id,
                 }
 
+            elif kind == "on_chat_model_end":
+                # Extract token usage from completed LLM call
+                output = event.get("data", {}).get("output")
+                if output:
+                    um = getattr(output, 'usage_metadata', None)
+                    if um:
+                        tracker = TokenTracker()
+                        tracker.record_usage(
+                            thread_id=thread_id,
+                            usage_metadata=dict(um) if um else {},
+                        )
+
     except Exception as e:
         logger.error(f"Streaming error: {e}", exc_info=True)
         yield {
@@ -906,7 +934,15 @@ async def run_agent_stream(
             "thread_id": thread_id,
         }
 
-    yield {"event_type": "done", "data": "", "thread_id": thread_id}
+    # Include token usage in done event
+    tracker = TokenTracker()
+    usage = tracker.get_session_usage(thread_id)
+    yield {
+        "event_type": "done",
+        "data": "",
+        "thread_id": thread_id,
+        "token_usage": usage,
+    }
 
 
 def get_session_history(thread_id: str) -> list[dict]:

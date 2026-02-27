@@ -30,8 +30,16 @@ from src.agent import run_agent, run_agent_stream, get_session_history, delete_s
 from src.models import (
     ChatRequest, ChatResponse, StreamEvent, ErrorResponse,
     HealthResponse, SessionHistoryResponse, IntentType,
+    GenerateRequest, GenerateResponse, UserPreferences,
 )
+from src.extractor import extract_structured_itinerary, build_generate_prompt
+from src.token_tracker import TokenTracker
 from src.logging_config import setup_logging, setup_langsmith, get_logger
+
+# Rate limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Load environment variables
 load_dotenv()
@@ -65,6 +73,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiter
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Token tracker (singleton)
+token_tracker = TokenTracker()
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -170,7 +186,8 @@ async def index():
 # =============================================================================
 
 @app.post("/api/v1/chat", response_model=ChatResponse)
-async def chat_v1(request: ChatRequest):
+@limiter.limit("20/minute")
+async def chat_v1(request: Request, chat_request: ChatRequest):
     """
     Send a message to the AI agent and get a response.
 
@@ -180,11 +197,11 @@ async def chat_v1(request: ChatRequest):
     Returns structured itinerary data alongside the text response.
     """
     try:
-        user_message = request.message.strip()
+        user_message = chat_request.message.strip()
         if not user_message:
             raise HTTPException(status_code=400, detail="Message is required")
 
-        thread_id = request.thread_id or str(uuid.uuid4())
+        thread_id = chat_request.thread_id or str(uuid.uuid4())
         intent = _classify_intent(user_message)
 
         logger.info(
@@ -196,7 +213,7 @@ async def chat_v1(request: ChatRequest):
         result = run_agent(
             user_message=user_message,
             thread_id=thread_id,
-            user_preferences=request.user_preferences,
+            user_preferences=chat_request.user_preferences,
             verbose=True,
         )
 
@@ -216,7 +233,8 @@ async def chat_v1(request: ChatRequest):
             response=response_text,
             thread_id=actual_thread_id,
             intent=intent,
-            structured_itinerary=None,  # TODO: Extract structured data in future iteration
+            structured_itinerary=None,
+            token_usage=result.get("token_usage"),
             success=True,
         )
 
@@ -227,8 +245,87 @@ async def chat_v1(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/v1/generate", response_model=GenerateResponse)
+@limiter.limit("5/minute")
+async def generate_itinerary(request: Request, gen_request: GenerateRequest):
+    """
+    Generate an itinerary from the mobile app's form inputs.
+
+    Converts form fields to a natural language prompt, runs the agent,
+    then extracts structured itinerary JSON with lat/lng for map rendering.
+
+    Returns both the markdown response and structured ItineraryData.
+    """
+    try:
+        # Convert form to prompt
+        prompt = build_generate_prompt(
+            description=gen_request.description,
+            interests=gen_request.interests,
+            start_time=gen_request.start_time,
+            end_time=gen_request.end_time,
+            start_location=gen_request.start_location,
+            travel_mode=gen_request.travel_mode,
+            start_date=gen_request.start_date,
+            end_date=gen_request.end_date,
+        )
+
+        thread_id = str(uuid.uuid4())
+
+        # Build user preferences from form
+        preferences = UserPreferences(
+            interests=gen_request.interests,
+            travel_mode=gen_request.travel_mode,
+        )
+
+        logger.info(
+            f"Generate request received",
+            extra={"thread_id": thread_id, "prompt": prompt[:100]}
+        )
+
+        # Run the agent
+        result = run_agent(
+            user_message=prompt,
+            thread_id=thread_id,
+            user_preferences=preferences,
+            verbose=True,
+        )
+
+        response_text = _extract_response_text(result["state"])
+        actual_thread_id = result["thread_id"]
+
+        # Extract structured itinerary via Gemini
+        structured = await extract_structured_itinerary(
+            response_text,
+            travel_mode=gen_request.travel_mode,
+        )
+
+        logger.info(
+            f"Generate response sent",
+            extra={
+                "thread_id": actual_thread_id,
+                "has_structured": structured is not None,
+                "stop_count": len(structured.stops) if structured else 0,
+            }
+        )
+
+        return GenerateResponse(
+            response=response_text,
+            thread_id=actual_thread_id,
+            structured_itinerary=structured,
+            token_usage=result.get("token_usage"),
+            success=True,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in generate endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/v1/chat/stream")
-async def chat_stream_v1(request: ChatRequest):
+@limiter.limit("20/minute")
+async def chat_stream_v1(request: Request, chat_request: ChatRequest):
     """
     Stream the agent's response via Server-Sent Events (SSE).
 
@@ -240,11 +337,11 @@ async def chat_stream_v1(request: ChatRequest):
     - `done`: Stream completed
     - `error`: An error occurred
     """
-    user_message = request.message.strip()
+    user_message = chat_request.message.strip()
     if not user_message:
         raise HTTPException(status_code=400, detail="Message is required")
 
-    thread_id = request.thread_id or str(uuid.uuid4())
+    thread_id = chat_request.thread_id or str(uuid.uuid4())
 
     logger.info(
         f"Stream request received",
@@ -256,7 +353,7 @@ async def chat_stream_v1(request: ChatRequest):
             async for event in run_agent_stream(
                 user_message=user_message,
                 thread_id=thread_id,
-                user_preferences=request.user_preferences,
+                user_preferences=chat_request.user_preferences,
             ):
                 yield {
                     "event": event.get("event_type", "token"),
@@ -265,6 +362,7 @@ async def chat_stream_v1(request: ChatRequest):
                         "content": event.get("data", ""),
                         "tool_name": event.get("tool_name"),
                         "thread_id": event.get("thread_id", thread_id),
+                        "token_usage": event.get("token_usage"),
                     }),
                 }
         except Exception as e:
@@ -311,6 +409,40 @@ async def delete_session_endpoint(thread_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/v1/extract")
+async def extract_itinerary_endpoint(request: Request):
+    """
+    Extract structured itinerary data from a text response.
+
+    Used by the refinement UI to re-extract structured data
+    after a chat-based itinerary modification.
+    """
+    try:
+        body = await request.json()
+        response_text = body.get("response_text", "")
+        travel_mode = body.get("travel_mode", "walking")
+
+        if not response_text:
+            raise HTTPException(status_code=400, detail="response_text is required")
+
+        structured = await extract_structured_itinerary(
+            response_text, travel_mode=travel_mode
+        )
+
+        if structured:
+            return structured.model_dump()
+        else:
+            return JSONResponse(
+                status_code=200,
+                content={"stops": [], "error": "Could not extract itinerary data"},
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Extract error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/v1/health", response_model=HealthResponse)
 async def health_v1():
     """Health check endpoint with configuration status."""
@@ -325,16 +457,36 @@ async def health_v1():
     )
 
 
+@app.get("/api/v1/usage")
+async def get_usage():
+    """
+    Get token usage statistics across all sessions.
+
+    Returns global totals, per-request averages, and estimated costs.
+    Useful for monitoring API consumption during development/demo.
+    """
+    return token_tracker.get_global_stats()
+
+
+@app.get("/api/v1/usage/{thread_id}")
+async def get_session_usage(thread_id: str):
+    """Get token usage for a specific session."""
+    usage = token_tracker.get_session_usage(thread_id)
+    if not usage:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return usage
+
+
 # =============================================================================
 # Legacy Endpoints (backwards compatibility)
 # =============================================================================
 
 @app.post("/api/chat")
-async def chat_legacy(request: ChatRequest):
+async def chat_legacy(request: Request, chat_request: ChatRequest):
     """
     Legacy chat endpoint. Redirects to v1.
     """
-    return await chat_v1(request)
+    return await chat_v1(request, chat_request)
 
 
 @app.get("/api/health")
@@ -367,6 +519,8 @@ if __name__ == '__main__':
         print("Endpoints:")
         print("  POST /api/v1/chat          — Chat (JSON)")
         print("  POST /api/v1/chat/stream   — Chat (SSE streaming)")
+        print("  POST /api/v1/generate      — Generate itinerary (structured JSON)")
+        print("  GET  /api/v1/usage         — Token usage & cost stats")
         print("  GET  /api/v1/sessions/{id} — Session history")
         print("  GET  /api/v1/health        — Health check")
         print("Press Ctrl+C to stop")
