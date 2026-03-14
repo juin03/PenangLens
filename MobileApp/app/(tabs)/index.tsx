@@ -138,7 +138,7 @@ export default function DiscoverScreen() {
       {viewMode === 'list' && (
         <>
           <Text style={styles.sectionTitle}>
-            {loading ? 'Loading...' : `${filteredSpots.length} ${activeCategory === 'All' ? 'Places' : activeCategory} Spots`}
+            {loading ? 'Loading...' : `${filteredSpots.length} ${activeCategory === 'All' ? 'Places' : activeCategory + ' Spots'}`}
           </Text>
           {loading ? (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -210,7 +210,7 @@ const styles = StyleSheet.create({
     fontSize: scale(13), color: Colors.textPrimary,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 4,
   },
-  chipScroll: { marginTop: Spacing.md, maxHeight: scale(40) },
+  chipScroll: { marginTop: Spacing.lg, flexGrow: 0 },
   chipRow: { paddingHorizontal: Spacing.md, gap: Spacing.sm },
   chip: {
     backgroundColor: Colors.white, borderRadius: Radius.full,

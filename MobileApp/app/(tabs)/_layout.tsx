@@ -1,22 +1,31 @@
 import { Tabs } from 'expo-router';
 import { Text, View, StyleSheet, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, scale } from '@/constants/theme';
 
 function TabIcon({ icon, label, focused }: { icon: string; label: string; focused: boolean }) {
   return (
     <View style={styles.tabItem}>
       <Text style={[styles.tabIcon, focused && styles.tabIconActive]}>{icon}</Text>
-      <Text style={[styles.tabLabel, focused && styles.tabLabelActive]}>{label}</Text>
+      <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.tabLabel, focused && styles.tabLabelActive]}>{label}</Text>
     </View>
   );
 }
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
+  
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarStyle: styles.tabBar,
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            height: scale(60) + insets.bottom,
+            paddingBottom: insets.bottom > 0 ? insets.bottom : scale(6),
+          }
+        ],
         tabBarShowLabel: false,
       }}
     >
@@ -32,9 +41,7 @@ const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: Colors.tabBar,
     borderTopWidth: 0,
-    height: Platform.OS === 'ios' ? scale(80) : scale(60),
     paddingTop: scale(6),
-    paddingBottom: Platform.OS === 'ios' ? scale(20) : scale(6),
   },
   tabItem: { alignItems: 'center', gap: 2 },
   tabIcon: { fontSize: scale(20) },
