@@ -1,0 +1,214 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Auth & Users ──────────────────────────────────────────────────────
+
+model User {
+  id                String   @id @default(uuid()) @map("user_id")
+  email             String   @unique
+  name              String?
+  hashedPassword    String?  @map("hashed_password")
+  provider          String   @default("local") // 'local' | 'google'
+  providerAccountId String?  @map("provider_account_id")
+  role              String   @default("user") // 'user' | 'admin'
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  preferences      UserPreference[]
+  itineraries      Itinerary[]
+  recognitions     RecognitionHistory[]
+  feedbacks        RecognitionFeedback[]
+  createdPois      PointOfInterest[]    @relation("PoiCreator")
+  createdImages    PoiImage[]           @relation("ImageCreator")
+  createdLandmarks Landmark[]           @relation("LandmarkCreator")
+
+  @@map("users")
+}
+
+model Tag {
+  id        String           @id @default(uuid()) @map("tag_id")
+  name      String           @unique
+  users     UserPreference[]
+  landmarks LandmarkTag[]
+
+  @@map("tags")
+}
+
+model UserPreference {
+  userId String @map("user_id")
+  tagId  String @map("tag_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([userId, tagId])
+  @@map("user_preferences")
+}
+
+// ─── Landmarks & POIs ──────────────────────────────────────────────────
+
+model Landmark {
+  id          String   @id @default(uuid()) @map("landmark_id")
+  name        String
+  description String?  @db.Text
+  location    String? // "lat,lng" or address
+  sourceUrls  String[] @map("source_urls")
+  status      String   @default("draft") // 'draft' | 'published'
+  content     Json?    // {overview, history, culture, funFacts}
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdBy   String?  @map("created_by")
+
+  creator User?         @relation("LandmarkCreator", fields: [createdBy], references: [id])
+  tags    LandmarkTag[]
+  pois    PointOfInterest[]
+
+  @@map("landmarks")
+}
+
+model LandmarkTag {
+  landmarkId String   @map("landmark_id")
+  tagId      String   @map("tag_id")
+  landmark   Landmark @relation(fields: [landmarkId], references: [id], onDelete: Cascade)
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([landmarkId, tagId])
+  @@map("landmark_tags")
+}
+
+model PointOfInterest {
+  id            String   @id @default(uuid()) @map("poi_id")
+  name          String
+  description   String?  @db.Text
+  location      String?
+  searchPrompts String[] @map("search_prompts")
+  sourceUrls    String[] @map("source_urls")
+  status        String   @default("draft") // 'draft' | 'published'
+  content       Json?    // {overview, history, culture, funFacts}
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  createdBy     String?  @map("created_by")
+  landmarkId    String?  @map("landmark_id")
+
+  creator      User?              @relation("PoiCreator", fields: [createdBy], references: [id])
+  landmark     Landmark?          @relation(fields: [landmarkId], references: [id])
+  images       PoiImage[]
+  stops        ItineraryStop[]
+  recognitions RecognitionHistory[]
+
+  @@map("points_of_interest")
+}
+
+model PoiImage {
+  id             String   @id @default(uuid()) @map("poi_image_id")
+  imageUrl       String   @map("image_url")
+  isPrimary      Boolean  @default(false) @map("is_primary")
+  isForEmbedding Boolean  @default(false) @map("is_for_embedding")
+  caption        String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  createdBy      String?  @map("created_by")
+  poiId          String   @map("poi_id")
+
+  creator User?           @relation("ImageCreator", fields: [createdBy], references: [id])
+  poi     PointOfInterest @relation(fields: [poiId], references: [id], onDelete: Cascade)
+
+  @@map("poi_images")
+}
+
+// ─── Itineraries ───────────────────────────────────────────────────────
+
+model Itinerary {
+  id                 String   @id @default(uuid()) @map("itinerary_id")
+  name               String
+  originalPrompt     String?  @map("original_prompt") @db.Text
+  generatedNarrative String?  @map("generated_narrative") @db.Text
+  totalDuration      Int?     @map("total_duration") // minutes
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  userId             String   @map("user_id")
+
+  user        User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stops       ItineraryStop[]
+  chatHistory ItineraryChatHistory[]
+
+  @@map("itineraries")
+}
+
+model ItineraryStop {
+  id            String  @id @default(uuid()) @map("itinerary_stop_id")
+  stopOrder     Int     @map("stop_order")
+  travelTimeMin Int?    @map("travel_time_minutes")
+  itineraryId   String  @map("itinerary_id")
+  poiId         String? @map("poi_id")
+
+  itinerary Itinerary        @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  poi       PointOfInterest? @relation(fields: [poiId], references: [id])
+
+  @@map("itinerary_stops")
+}
+
+model ItineraryChatHistory {
+  id          String   @id @default(uuid()) @map("message_id")
+  role        String // 'user' | 'assistant'
+  content     String   @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  itineraryId String   @map("itinerary_id")
+
+  itinerary Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+
+  @@map("itinerary_chat_history")
+}
+
+// ─── Vision / Recognition ──────────────────────────────────────────────
+
+model RecognitionHistory {
+  id            String   @id @default(uuid()) @map("recognition_id")
+  userImageUrl  String?  @map("user_image_url")
+  userLatitude  Float?   @map("user_latitude")
+  userLongitude Float?   @map("user_longitude")
+  aiDetails     Json?    @map("ai_details") // {detections, confidence, model, timing_ms}
+  createdAt     DateTime @default(now()) @map("created_at")
+  userId        String   @map("user_id")
+  poiId         String?  @map("poi_id")
+
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  poi         PointOfInterest?      @relation(fields: [poiId], references: [id])
+  feedbacks   RecognitionFeedback[]
+  chatHistory ChatHistory[]
+
+  @@map("recognition_history")
+}
+
+model RecognitionFeedback {
+  id             String   @id @default(uuid()) @map("feedback_id")
+  isCorrect      Boolean  @map("is_correct")
+  suggestedPoiId String?  @map("suggested_poi_id")
+  status         String   @default("pending") // 'pending' | 'reviewed' | 'actioned'
+  adminNotes     String?  @map("admin_notes") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+  recognitionId  String   @map("recognition_id")
+  userId         String   @map("user_id")
+
+  recognition RecognitionHistory @relation(fields: [recognitionId], references: [id], onDelete: Cascade)
+  user        User               @relation(fields: [userId], references: [id])
+
+  @@map("recognition_feedback")
+}
+
+model ChatHistory {
+  id             String   @id @default(uuid()) @map("history_id")
+  sender         String // 'user' | 'assistant'
+  messageContent String   @map("message_content") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+  recognitionId  String   @map("recognition_id")
+
+  recognition RecognitionHistory @relation(fields: [recognitionId], references: [id], onDelete: Cascade)
+
+  @@map("chat_history")
+}
