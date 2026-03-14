@@ -78,13 +78,14 @@ def search_places(category: str) -> str:
     return result
 
 
-def get_travel_time(origin: str, destination: str) -> str:
+def get_travel_time(origin: str, destination: str, mode: str = "driving") -> str:
     """
     Calculate travel time between two locations using Google Maps Distance Matrix API.
     
     Args:
         origin: Starting location (landmark name or address)
         destination: Destination location (landmark name or address)
+        mode: The mode of transport (e.g., 'walking', 'driving', 'transit')
     
     Returns:
         A string describing the travel time and distance
@@ -100,7 +101,7 @@ def get_travel_time(origin: str, destination: str) -> str:
     params = {
         'origins': f"{origin}, Penang, Malaysia",
         'destinations': f"{destination}, Penang, Malaysia",
-        'mode': 'driving',
+        'mode': mode,
         'key': api_key
     }
     
@@ -117,7 +118,7 @@ def get_travel_time(origin: str, destination: str) -> str:
                 distance = element['distance']['text']
                 duration_minutes = element['duration']['value'] // 60
                 
-                return f"Travel time from {origin} to {destination}: {duration} ({distance}) by car. Approximately {duration_minutes} minutes."
+                return f"Travel time from {origin} to {destination}: {duration} ({distance}) by {mode}. Approximately {duration_minutes} minutes."
             else:
                 return f"Could not calculate route between {origin} and {destination}. Status: {element['status']}"
         else:

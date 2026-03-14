@@ -27,6 +27,7 @@ from sse_starlette.sse import EventSourceResponse
 
 # Our modules
 from src.agent import run_agent, run_agent_stream, get_session_history, delete_session
+from src.indexer import index_spot, delete_spot, search_context
 from src.models import (
     ChatRequest, ChatResponse, StreamEvent, ErrorResponse,
     HealthResponse, SessionHistoryResponse, IntentType,
@@ -182,6 +183,54 @@ async def index():
 
 
 # =============================================================================
+# Content Indexing Endpoints (called by BFF admin on publish/delete)
+# =============================================================================
+
+class IndexSpotRequest(dict):
+    pass
+
+@app.post("/index")
+async def index_spot_endpoint(request: Request):
+    """
+    Index a published spot into Azure AI Search for RAG.
+    Called by BFF when admin publishes a Landmark or POI.
+
+    Body: { id, name, type, description, tags, searchPrompts, parentLandmarkName }
+    """
+    try:
+        spot = await request.json()
+        required = ["id", "name", "type"]
+        if not all(k in spot for k in required):
+            raise HTTPException(status_code=400, detail=f"Missing required fields: {required}")
+
+        success = index_spot(spot)
+        if success:
+            logger.info(f"Indexed spot: {spot['name']} ({spot['id']})")
+            return JSONResponse({"success": True, "message": f"Indexed '{spot['name']}'"})
+        else:
+            return JSONResponse({"success": False, "message": "Azure Search not configured or indexing failed"}, status_code=503)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error indexing spot: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/index/{spot_id}")
+async def delete_spot_endpoint(spot_id: str):
+    """
+    Remove a spot from the RAG index.
+    Called by BFF when admin unpublishes or deletes a spot.
+    """
+    try:
+        success = delete_spot(spot_id)
+        return JSONResponse({"success": success, "spot_id": spot_id})
+    except Exception as e:
+        logger.error(f"Error deleting spot {spot_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
 # API v1 Endpoints
 # =============================================================================
 
@@ -209,9 +258,18 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
             extra={"thread_id": thread_id}
         )
 
-        # Run the agent
+        # RAG: retrieve relevant Penang content from Azure AI Search
+        rag_chunks = search_context(user_message, top_k=3)
+        rag_context = ""
+        if rag_chunks:
+            context_texts = [f"- [{c['name']}] {c['content']}" for c in rag_chunks]
+            rag_context = "\n\nRelevant Penang Heritage Information:\n" + "\n".join(context_texts)
+            logger.debug(f"RAG: injected {len(rag_chunks)} chunks into context")
+
+        # Run the agent (with RAG context appended to message if available)
+        augmented_message = user_message + rag_context if rag_context else user_message
         result = run_agent(
-            user_message=user_message,
+            user_message=augmented_message,
             thread_id=thread_id,
             user_preferences=chat_request.user_preferences,
             verbose=True,

@@ -85,9 +85,9 @@ def search_places_tool(category: str) -> str:
 
 
 @tool
-def get_travel_time_tool(origin: str, destination: str) -> str:
-    """Calculate travel time between two locations in Penang using Google Maps."""
-    return get_travel_time(origin, destination)
+def get_travel_time_tool(origin: str, destination: str, mode: str = "driving") -> str:
+    """Calculate travel time between two locations in Penang using Google Maps. mode can be 'walking', 'driving', or 'transit'."""
+    return get_travel_time(origin, destination, mode=mode)
 
 
 @tool

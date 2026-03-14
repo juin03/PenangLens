@@ -115,14 +115,15 @@ Return ONLY valid JSON matching this exact schema (no markdown, no explanation):
 
 Rules:
 - Extract ALL stops mentioned in the itinerary
-- For "short_description": max 60 characters, one-line hook (e.g. "Oldest Anglican church in SE Asia, built 1818")
-- For "description": full 2-3 sentence description with significance and what to see
+- For "short_description": max 60 characters, one-line hook
+- For "description": full 2-3 sentence description 
 - For coordinates: use realistic Penang coordinates (lat ~5.2-5.5, lng ~100.1-100.4)
-- For google_maps_url: extract any Google Maps URLs from the text, or construct from place name
+- For google_maps_url: extract URLs from text or construct from name
 - For route_url: extract the Google Maps directions URL if present
 - travel_to_next should be null for the LAST stop
 - Set "summary" to a short title for the itinerary (e.g. "2-Hour Heritage Walk")
-- total_distance should be the total walking/driving distance
+- total_distance should be the total distance
+- CRITICAL: The user's requested travel mode is "{travel_mode}". You MUST set the "mode" field in "travel_to_next" to "{travel_mode}" for all segments unless the text explicitly states otherwise.
 
 Travel plan to extract from:
 
