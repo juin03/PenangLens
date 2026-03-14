@@ -15,3 +15,4 @@ VisionML/uploads/
 # Agent Specific
 Agent/node_modules/
 Agent/dist/
+*.md
