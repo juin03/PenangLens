@@ -1,25 +1,28 @@
 """
 Structured itinerary extraction from agent responses.
 
-Uses a second Gemini LLM call to convert the agent's markdown itinerary
+Uses a second Azure OpenAI LLM call to convert the agent's markdown itinerary
 into structured JSON matching the ItineraryData schema. This gives
 the mobile app clean lat/lng data for map pins and stop details.
 """
 
-import os
 import json
 import re
 import logging
 from typing import Optional
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+import os
+
+from langchain_openai import AzureChatOpenAI
 from langchain_core.messages import HumanMessage
+from dotenv import load_dotenv
 
 from .models import ItineraryData, ItineraryStop, TravelSegment, TravelMode
 from .logging_config import get_logger
 from .tools import load_landmarks
 
 logger = get_logger("penang_agent.extractor")
+load_dotenv()
 
 
 # Schema description for the extraction prompt
@@ -85,7 +88,7 @@ async def extract_structured_itinerary(
     """
     Extract structured itinerary data from agent markdown response.
 
-    Uses a second Gemini call with a strict JSON extraction prompt.
+    Uses a second Azure OpenAI call with a strict JSON extraction prompt.
 
     Args:
         response_text: The agent's full markdown response
@@ -100,10 +103,23 @@ async def extract_structured_itinerary(
         logger.debug("Response doesn't appear to be an itinerary, skipping extraction")
         return None
 
-    api_key = os.getenv('GOOGLE_API_KEY')
-    if not api_key:
-        logger.warning("No API key for structured extraction")
+    azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
+    api_key = os.getenv('AZURE_OPENAI_API_KEY')
+    deployment = os.getenv('AZURE_OPENAI_EXTRACT_DEPLOYMENT') or os.getenv('AZURE_OPENAI_CHAT_DEPLOYMENT', 'gpt-4o-mini')
+    api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2025-01-01-preview')
+
+    if not azure_endpoint or not api_key:
+        logger.warning("No Azure OpenAI config for structured extraction")
         return None
+
+    logger.info(
+        "Selected Azure OpenAI deployment for extraction call",
+        extra={
+            "azure_endpoint": azure_endpoint,
+            "azure_deployment": deployment,
+            "api_version": api_version,
+        }
+    )
 
     # Build landmark lookup for coordinate enrichment
     landmark_lookup = _build_landmark_lookup()
@@ -131,9 +147,11 @@ Travel plan to extract from:
 """
 
     try:
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            google_api_key=api_key,
+        llm = AzureChatOpenAI(
+            azure_endpoint=azure_endpoint,
+            api_key=api_key,
+            azure_deployment=deployment,
+            api_version=api_version,
             temperature=0.1,
         )
 

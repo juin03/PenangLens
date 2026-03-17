@@ -1,5 +1,5 @@
 """
-Core AI Agent implementation using LangGraph and Google Gemini.
+Core AI Agent implementation using LangGraph and Azure OpenAI.
 
 This module implements the autonomous agent that:
 1. Receives natural language travel requests
@@ -16,6 +16,7 @@ import os
 import uuid
 import json
 import logging
+from dotenv import load_dotenv
 
 from .token_tracker import TokenTracker
 from typing import Annotated, TypedDict, Literal
@@ -23,7 +24,7 @@ from typing import Annotated, TypedDict, Literal
 from langchain_core.messages import (
     BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
 )
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import AzureChatOpenAI
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -44,6 +45,7 @@ from .guardrails import sanitize_input, check_penang_scope
 from .logging_config import get_logger
 
 logger = get_logger("penang_agent.core")
+load_dotenv()
 
 # Maximum number of self-correction attempts
 MAX_CORRECTIONS = 3
@@ -380,17 +382,31 @@ Always refer to the previous itinerary when modifying, don't start from scratch.
 # =============================================================================
 
 def _create_llm():
-    """Create and configure the Gemini LLM instance."""
-    api_key = os.getenv('GOOGLE_API_KEY')
-    if not api_key or api_key == 'your_google_gemini_api_key_here':
+    """Create and configure the Azure OpenAI LLM instance."""
+    azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
+    api_key = os.getenv('AZURE_OPENAI_API_KEY')
+    deployment = os.getenv('AZURE_OPENAI_CHAT_DEPLOYMENT', 'gpt-4o-mini')
+    api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2025-01-01-preview')
+
+    if not azure_endpoint or not api_key:
         raise ValueError(
-            "GOOGLE_API_KEY not configured. Please set it in your .env file. "
-            "Get your API key from: https://makersuite.google.com/app/apikey"
+            "Azure OpenAI not configured. Please set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY in your .env file."
         )
 
-    return ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        google_api_key=api_key,
+    logger.info(
+        "Selected Azure OpenAI deployment for agent call",
+        extra={
+            "azure_endpoint": azure_endpoint,
+            "azure_deployment": deployment,
+            "api_version": api_version,
+        }
+    )
+
+    return AzureChatOpenAI(
+        azure_endpoint=azure_endpoint,
+        api_key=api_key,
+        azure_deployment=deployment,
+        api_version=api_version,
         temperature=0.7,
     )
 
@@ -447,9 +463,6 @@ def create_graph():
     Returns:
         Tuple of (compiled_graph, checkpointer)
     """
-    llm = _create_llm()
-    llm_with_tools = llm.bind_tools(tools)
-
     # ---- Nodes ----
 
     def guardrail_node(state: AgentState) -> dict:
@@ -502,8 +515,26 @@ def create_graph():
                 SystemMessage(content=system_prompt),
                 HumanMessage(content="Hello, I need help planning my trip to Penang."),
             ]
-        # Call the LLM
-        response = llm_with_tools.invoke(fixed)
+
+        # Call the LLM with key rotation (retry once on quota with next key)
+        response = None
+        last_error = None
+        for attempt in range(2):
+            try:
+                llm_with_tools = _create_llm().bind_tools(tools)
+                response = llm_with_tools.invoke(fixed)
+                break
+            except Exception as exc:
+                last_error = exc
+                message = str(exc)
+                is_quota_error = "RESOURCE_EXHAUSTED" in message or "429" in message
+                if is_quota_error and attempt == 0:
+                    logger.warning("Quota hit in agent node, retrying with next API key")
+                    continue
+                raise
+
+        if response is None and last_error is not None:
+            raise last_error
 
         # Normalize list content to string (Gemini sometimes returns [{"text": "..."}])
         if isinstance(response, AIMessage) and isinstance(response.content, list):

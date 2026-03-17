@@ -26,14 +26,31 @@ class JSONFormatter(logging.Formatter):
         }
         
         # Add extra fields if present
-        if hasattr(record, "thread_id"):
-            log_entry["thread_id"] = record.thread_id
-        if hasattr(record, "tool_name"):
-            log_entry["tool_name"] = record.tool_name
-        if hasattr(record, "duration_ms"):
-            log_entry["duration_ms"] = record.duration_ms
-        if hasattr(record, "correlation_id"):
-            log_entry["correlation_id"] = record.correlation_id
+        extra_fields = [
+            "thread_id",
+            "tool_name",
+            "duration_ms",
+            "correlation_id",
+            "request_id",
+            "method",
+            "path",
+            "status_code",
+            "client_ip",
+            "event",
+            "retry_after_s",
+            "is_quota_error",
+            "google_api_key_set",
+            "google_api_key_preview",
+            "google_maps_key_set",
+            "google_maps_key_preview",
+            "azure_search_endpoint_set",
+            "azure_search_key_set",
+            "azure_search_key_preview",
+            "log_level",
+        ]
+        for field in extra_fields:
+            if hasattr(record, field):
+                log_entry[field] = getattr(record, field)
             
         if record.exc_info and record.exc_info[0] is not None:
             log_entry["exception"] = self.formatException(record.exc_info)
@@ -64,10 +81,28 @@ class PrettyFormatter(logging.Formatter):
         extras = []
         if hasattr(record, "thread_id"):
             extras.append(f"thread={record.thread_id[:8]}")
+        if hasattr(record, "request_id") and record.request_id:
+            extras.append(f"req={str(record.request_id)[:8]}")
+        if hasattr(record, "method") and hasattr(record, "path"):
+            extras.append(f"{record.method} {record.path}")
+        if hasattr(record, "status_code"):
+            extras.append(f"status={record.status_code}")
+        if hasattr(record, "client_ip"):
+            extras.append(f"ip={record.client_ip}")
         if hasattr(record, "tool_name"):
             extras.append(f"tool={record.tool_name}")
         if hasattr(record, "duration_ms"):
             extras.append(f"took={record.duration_ms}ms")
+        if hasattr(record, "retry_after_s") and record.retry_after_s is not None:
+            extras.append(f"retry={record.retry_after_s}s")
+        if hasattr(record, "is_quota_error") and record.is_quota_error:
+            extras.append("quota_exhausted=true")
+        if hasattr(record, "google_api_key_preview"):
+            extras.append(f"gemini_key={record.google_api_key_preview}")
+        if hasattr(record, "google_maps_key_preview"):
+            extras.append(f"maps_key={record.google_maps_key_preview}")
+        if hasattr(record, "azure_search_key_preview"):
+            extras.append(f"azure_key={record.azure_search_key_preview}")
             
         context = f" [{', '.join(extras)}]" if extras else ""
         

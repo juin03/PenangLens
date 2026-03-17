@@ -15,6 +15,8 @@ import json
 import uuid
 import asyncio
 import traceback
+import time
+import re
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
@@ -32,10 +34,12 @@ from src.models import (
     ChatRequest, ChatResponse, StreamEvent, ErrorResponse,
     HealthResponse, SessionHistoryResponse, IntentType,
     GenerateRequest, GenerateResponse, UserPreferences,
+    UpsertUserProfileRequest, RecommendRequest,
 )
 from src.extractor import extract_structured_itinerary, build_generate_prompt
 from src.token_tracker import TokenTracker
 from src.logging_config import setup_logging, setup_langsmith, get_logger
+from src.personalization import personalization_service
 
 # Rate limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -49,6 +53,48 @@ load_dotenv()
 setup_logging(level=os.getenv("LOG_LEVEL", "INFO"))
 setup_langsmith()
 logger = get_logger("penang_agent.api")
+
+
+def _mask_secret(value: str | None) -> str:
+    """Mask sensitive keys while still allowing operators to identify which key is loaded."""
+    if not value:
+        return "<missing>"
+    if len(value) <= 8:
+        return "*" * len(value)
+    return f"{value[:4]}...{value[-4:]}"
+
+
+def _log_env_diagnostics() -> None:
+    """Log startup diagnostics for key configuration/observability."""
+    google_key = os.getenv("GOOGLE_API_KEY")
+    azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    azure_openai_key = os.getenv("AZURE_OPENAI_API_KEY")
+    azure_openai_deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
+    maps_key = os.getenv("GOOGLE_MAPS_API_KEY")
+    azure_endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
+    azure_key = os.getenv("AZURE_SEARCH_KEY")
+    log_level = os.getenv("LOG_LEVEL", "INFO")
+
+    logger.info(
+        "Environment diagnostics",
+        extra={
+            "event": "startup_env",
+            "google_api_key_set": bool(google_key),
+            "google_api_key_preview": _mask_secret(google_key),
+            "azure_openai_endpoint_set": bool(azure_openai_endpoint),
+            "azure_openai_key_set": bool(azure_openai_key),
+            "azure_openai_key_preview": _mask_secret(azure_openai_key),
+            "azure_openai_deployment": azure_openai_deployment,
+            "google_maps_key_set": bool(maps_key),
+            "google_maps_key_preview": _mask_secret(maps_key),
+            "azure_search_endpoint_set": bool(azure_endpoint),
+            "azure_search_key_set": bool(azure_key),
+            "azure_search_key_preview": _mask_secret(azure_key),
+            "personalization_embedding_provider": os.getenv("PERSONALIZATION_EMBEDDING_PROVIDER", "google"),
+            "personalization_embedding_dim": os.getenv("PERSONALIZATION_EMBEDDING_DIM", "768"),
+            "log_level": log_level,
+        },
+    )
 
 # =============================================================================
 # App Initialization
@@ -65,6 +111,64 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+
+@app.on_event("startup")
+async def on_startup_observability() -> None:
+    _log_env_diagnostics()
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    start_time = time.perf_counter()
+    client_ip = request.client.host if request.client else "unknown"
+
+    logger.info(
+        "Request started",
+        extra={
+            "event": "request_start",
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "client_ip": client_ip,
+        },
+    )
+
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+        logger.error(
+            f"Request failed: {exc}",
+            exc_info=True,
+            extra={
+                "event": "request_error",
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "client_ip": client_ip,
+                "duration_ms": duration_ms,
+            },
+        )
+        raise
+
+    duration_ms = int((time.perf_counter() - start_time) * 1000)
+    response.headers["x-request-id"] = request_id
+    logger.info(
+        "Request completed",
+        extra={
+            "event": "request_end",
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "client_ip": client_ip,
+            "duration_ms": duration_ms,
+        },
+    )
+
+    return response
 
 # CORS middleware
 app.add_middleware(
@@ -245,6 +349,9 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
 
     Returns structured itinerary data alongside the text response.
     """
+    request_id = request.headers.get("x-request-id")
+    started = time.perf_counter()
+
     try:
         user_message = chat_request.message.strip()
         if not user_message:
@@ -255,7 +362,7 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
 
         logger.info(
             f"Chat request received",
-            extra={"thread_id": thread_id}
+            extra={"thread_id": thread_id, "request_id": request_id}
         )
 
         # RAG: retrieve relevant Penang content from Azure AI Search
@@ -267,7 +374,9 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
             logger.debug(f"RAG: injected {len(rag_chunks)} chunks into context")
 
         # Run the agent (with RAG context appended to message if available)
-        augmented_message = user_message + rag_context if rag_context else user_message
+        augmented_message = user_message
+        if rag_context:
+            augmented_message += rag_context
         result = run_agent(
             user_message=augmented_message,
             thread_id=thread_id,
@@ -284,7 +393,11 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
 
         logger.info(
             f"Chat response sent",
-            extra={"thread_id": actual_thread_id}
+            extra={
+                "thread_id": actual_thread_id,
+                "request_id": request_id,
+                "duration_ms": int((time.perf_counter() - started) * 1000),
+            }
         )
 
         return ChatResponse(
@@ -299,7 +412,19 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in chat endpoint: {e}", exc_info=True)
+        message = str(e)
+        quota_match = re.search(r"retry in\s+([0-9]+\.?[0-9]*)s", message, flags=re.IGNORECASE)
+        retry_after_s = float(quota_match.group(1)) if quota_match else None
+        logger.error(
+            f"Error in chat endpoint: {e}",
+            exc_info=True,
+            extra={
+                "request_id": request_id,
+                "duration_ms": int((time.perf_counter() - started) * 1000),
+                "is_quota_error": "RESOURCE_EXHAUSTED" in message or "429" in message,
+                "retry_after_s": retry_after_s,
+            },
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -314,6 +439,9 @@ async def generate_itinerary(request: Request, gen_request: GenerateRequest):
 
     Returns both the markdown response and structured ItineraryData.
     """
+    request_id = request.headers.get("x-request-id")
+    started = time.perf_counter()
+
     try:
         # Convert form to prompt
         prompt = build_generate_prompt(
@@ -337,7 +465,7 @@ async def generate_itinerary(request: Request, gen_request: GenerateRequest):
 
         logger.info(
             f"Generate request received",
-            extra={"thread_id": thread_id, "prompt": prompt[:100]}
+            extra={"thread_id": thread_id, "prompt": prompt[:100], "request_id": request_id}
         )
 
         # Run the agent
@@ -361,8 +489,10 @@ async def generate_itinerary(request: Request, gen_request: GenerateRequest):
             f"Generate response sent",
             extra={
                 "thread_id": actual_thread_id,
+                "request_id": request_id,
                 "has_structured": structured is not None,
                 "stop_count": len(structured.stops) if structured else 0,
+                "duration_ms": int((time.perf_counter() - started) * 1000),
             }
         )
 
@@ -377,7 +507,19 @@ async def generate_itinerary(request: Request, gen_request: GenerateRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in generate endpoint: {e}", exc_info=True)
+        message = str(e)
+        quota_match = re.search(r"retry in\s+([0-9]+\.?[0-9]*)s", message, flags=re.IGNORECASE)
+        retry_after_s = float(quota_match.group(1)) if quota_match else None
+        logger.error(
+            f"Error in generate endpoint: {e}",
+            exc_info=True,
+            extra={
+                "request_id": request_id,
+                "duration_ms": int((time.perf_counter() - started) * 1000),
+                "is_quota_error": "RESOURCE_EXHAUSTED" in message or "429" in message,
+                "retry_after_s": retry_after_s,
+            },
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -400,6 +542,14 @@ async def chat_stream_v1(request: Request, chat_request: ChatRequest):
         raise HTTPException(status_code=400, detail="Message is required")
 
     thread_id = chat_request.thread_id or str(uuid.uuid4())
+
+    # RAG: inject relevant context before streaming (mirrors /chat behaviour)
+    rag_chunks = search_context(user_message, top_k=3)
+    if rag_chunks:
+        rag_context = "\n\nRelevant Penang Heritage Information:\n" + "\n".join(
+            f"- [{c['name']}] {c['content']}" for c in rag_chunks
+        )
+        user_message = user_message + rag_context
 
     logger.info(
         f"Stream request received",
@@ -488,11 +638,19 @@ async def extract_itinerary_endpoint(request: Request):
         )
 
         if structured:
-            return structured.model_dump()
+            return {
+                "success": True,
+                "structured_itinerary": structured.model_dump(),
+            }
         else:
             return JSONResponse(
                 status_code=200,
-                content={"stops": [], "error": "Could not extract itinerary data"},
+                content={
+                    "success": False,
+                    "structured_itinerary": None,
+                    "stops": [],
+                    "error": "Could not extract itinerary data"
+                },
             )
     except HTTPException:
         raise
@@ -504,13 +662,20 @@ async def extract_itinerary_endpoint(request: Request):
 @app.get("/api/v1/health", response_model=HealthResponse)
 async def health_v1():
     """Health check endpoint with configuration status."""
-    api_key = os.getenv('GOOGLE_API_KEY')
+    google_key = os.getenv('GOOGLE_API_KEY')
+    azure_openai_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
+    azure_openai_key = os.getenv('AZURE_OPENAI_API_KEY')
     maps_key = os.getenv('GOOGLE_MAPS_API_KEY')
+
+    llm_configured = bool(
+        (azure_openai_endpoint and azure_openai_key)
+        or (google_key and google_key != 'your_google_gemini_api_key_here')
+    )
 
     return HealthResponse(
         status="healthy",
         version="2.0.0",
-        gemini_configured=bool(api_key and api_key != 'your_google_gemini_api_key_here'),
+        gemini_configured=llm_configured,
         maps_configured=bool(maps_key and maps_key != 'your_google_maps_api_key_here'),
     )
 
@@ -533,6 +698,31 @@ async def get_session_usage(thread_id: str):
     if not usage:
         raise HTTPException(status_code=404, detail="Session not found")
     return usage
+
+
+@app.post("/api/v1/personalization/user-profile")
+async def upsert_user_profile(req: UpsertUserProfileRequest):
+    """Upsert a user profile vector from onboarding/profile interests."""
+    ok = personalization_service.upsert_user_profile(
+        user_id=req.user_id,
+        interests=req.interests,
+        source=req.source,
+    )
+    return {"success": ok, "user_id": req.user_id, "interest_count": len(req.interests)}
+
+
+@app.post("/api/v1/personalization/place-profiles/backfill")
+async def backfill_place_profiles(limit: int = 500):
+    """Backfill place profile vectors from the existing text index."""
+    result = personalization_service.backfill_place_profiles_from_text_index(limit=limit)
+    return result
+
+
+@app.post("/api/v1/personalization/recommendations")
+async def get_personalized_recommendations(req: RecommendRequest):
+    """Get ranked recommendation candidates directly from onboarding interests."""
+    recs = personalization_service.recommend_by_interests(req.interests, top_k=req.top_k)
+    return {"success": True, "count": len(recs), "recommendations": recs}
 
 
 # =============================================================================
@@ -560,13 +750,15 @@ async def health_legacy():
 if __name__ == '__main__':
     import uvicorn
 
-    api_key = os.getenv('GOOGLE_API_KEY')
-    if not api_key or api_key == 'your_google_gemini_api_key_here':
+    google_key = os.getenv('GOOGLE_API_KEY')
+    azure_openai_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
+    azure_openai_key = os.getenv('AZURE_OPENAI_API_KEY')
+
+    if not ((azure_openai_endpoint and azure_openai_key) or (google_key and google_key != 'your_google_gemini_api_key_here')):
         print("\n" + "=" * 60)
-        print("⚠️  WARNING: GOOGLE_API_KEY not configured!")
+        print("⚠️  WARNING: No LLM provider configured!")
         print("=" * 60)
-        print("Please set your API key in the .env file.")
-        print("Get your API key from: https://makersuite.google.com/app/apikey")
+        print("Set Azure OpenAI variables (AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY) or GOOGLE_API_KEY.")
         print("=" * 60 + "\n")
     else:
         print("\n" + "=" * 60)
@@ -578,6 +770,9 @@ if __name__ == '__main__':
         print("  POST /api/v1/chat          — Chat (JSON)")
         print("  POST /api/v1/chat/stream   — Chat (SSE streaming)")
         print("  POST /api/v1/generate      — Generate itinerary (structured JSON)")
+        print("  POST /api/v1/personalization/user-profile            — Upsert user profile vector")
+        print("  POST /api/v1/personalization/place-profiles/backfill — Build place vectors")
+        print("  POST /api/v1/personalization/recommendations         — Ranked places from interests")
         print("  GET  /api/v1/usage         — Token usage & cost stats")
         print("  GET  /api/v1/sessions/{id} — Session history")
         print("  GET  /api/v1/health        — Health check")

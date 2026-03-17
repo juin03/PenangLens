@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator }
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Radius, Spacing, scale } from '@/constants/theme';
-import { getItineraries, deleteItinerary } from '@/api/client';
+import { getItineraries, deleteItinerary, getToken } from '@/api/client';
 
 interface SavedTrip {
   id: string;
@@ -19,15 +19,31 @@ export default function ItinerariesScreen() {
   const [trips, setTrips] = useState<SavedTrip[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [needsLogin, setNeedsLogin] = useState(false);
 
   const loadTrips = async () => {
     setLoading(true);
     setError('');
+    setNeedsLogin(false);
     try {
+      const token = await getToken();
+      if (!token) {
+        setNeedsLogin(true);
+        setError('Please login to view saved itineraries.');
+        setTrips([]);
+        return;
+      }
+
       const data = await getItineraries();
       setTrips(data.itineraries || []);
-    } catch {
-      setError('Could not load itineraries. Make sure you are logged in.');
+    } catch (err: any) {
+      if (err?.message === 'Unauthorized') {
+        setNeedsLogin(true);
+        setError('Session expired. Please login again.');
+        setTrips([]);
+      } else {
+        setError('Could not load itineraries. Make sure you are logged in.');
+      }
     } finally {
       setLoading(false);
     }
@@ -55,6 +71,24 @@ export default function ItinerariesScreen() {
     return `${Math.floor(minutes / 60)}h ${minutes % 60 > 0 ? `${minutes % 60}m` : ''}`.trim();
   };
 
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+
+  const getDateHeader = (iso: string) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return 'Unknown Date';
+
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    if (sameDay(d, today)) return 'Today';
+    if (sameDay(d, yesterday)) return 'Yesterday';
+    return d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
@@ -72,9 +106,15 @@ export default function ItinerariesScreen() {
       ) : error ? (
         <View style={styles.center}>
           <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={loadTrips}>
-            <Text style={styles.retryText}>Try Again</Text>
-          </TouchableOpacity>
+          {needsLogin ? (
+            <TouchableOpacity style={styles.retryBtn} onPress={() => router.replace('/login')}>
+              <Text style={styles.retryText}>Go to Login</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.retryBtn} onPress={loadTrips}>
+              <Text style={styles.retryText}>Try Again</Text>
+            </TouchableOpacity>
+          )}
         </View>
       ) : trips.length === 0 ? (
         <View style={styles.empty}>
@@ -92,26 +132,47 @@ export default function ItinerariesScreen() {
           contentContainerStyle={styles.list}
           onRefresh={loadTrips}
           refreshing={loading}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.card}
-              onPress={() => router.push({ pathname: '/itinerary', params: { id: item.id, name: item.name } })}
-            >
-              <View style={styles.cardTop}>
-                <Text style={styles.cardTitle} numberOfLines={2}>{item.name}</Text>
-                <TouchableOpacity onPress={() => handleDelete(item.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <Text style={styles.deleteIcon}>🗑️</Text>
+          renderItem={({ item, index }) => {
+            const currentHeader = getDateHeader(item.createdAt);
+            const prevHeader = index > 0 ? getDateHeader(trips[index - 1].createdAt) : null;
+            const showHeader = index === 0 || currentHeader !== prevHeader;
+
+            return (
+              <>
+                {showHeader && (
+                  <View style={styles.dateHeaderRow}>
+                    <Text style={styles.dateHeaderText}>{currentHeader}</Text>
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={styles.card}
+                  onPress={() => router.push({ pathname: '/itinerary', params: { id: item.id, name: item.name } })}
+                >
+                  <View style={styles.cardTop}>
+                    <Text style={styles.cardTitle} numberOfLines={2}>{item.name}</Text>
+                    <TouchableOpacity onPress={() => handleDelete(item.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Text style={styles.deleteIcon}>🗑️</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.cardDate}>{formatDate(item.createdAt)}</Text>
+                  <View style={styles.cardMeta}>
+                    {item.stops && <Text style={styles.cardStat}>📍 {item.stops.length} stops</Text>}
+                    {item.totalDuration ? <Text style={styles.cardStat}>⏱️ {formatDuration(item.totalDuration)}</Text> : null}
+                  </View>
                 </TouchableOpacity>
-              </View>
-              <Text style={styles.cardDate}>{formatDate(item.createdAt)}</Text>
-              <View style={styles.cardMeta}>
-                {item.stops && <Text style={styles.cardStat}>📍 {item.stops.length} stops</Text>}
-                {item.totalDuration ? <Text style={styles.cardStat}>⏱️ {formatDuration(item.totalDuration)}</Text> : null}
-              </View>
-            </TouchableOpacity>
-          )}
+              </>
+            );
+          }}
         />
       )}
+
+      <TouchableOpacity
+        style={[styles.fab, { bottom: insets.bottom + scale(16) }]}
+        onPress={() => router.push('/plan')}
+        activeOpacity={0.9}
+      >
+        <Text style={styles.fabText}>＋ Create Itinerary</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -133,6 +194,8 @@ const styles = StyleSheet.create({
   createBtn: { backgroundColor: Colors.accent, borderRadius: Radius.full, paddingVertical: scale(12), paddingHorizontal: scale(24) },
   createBtnText: { color: Colors.white, fontSize: scale(14), fontWeight: '700' },
   list: { padding: Spacing.md, gap: Spacing.sm },
+  dateHeaderRow: { marginTop: scale(8), marginBottom: scale(4), paddingHorizontal: scale(2) },
+  dateHeaderText: { fontSize: scale(12), fontWeight: '700', color: Colors.textMuted },
   card: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
   cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: Spacing.sm },
   cardTitle: { flex: 1, fontSize: scale(14), fontWeight: '700', color: Colors.textPrimary },
@@ -140,4 +203,18 @@ const styles = StyleSheet.create({
   cardDate: { fontSize: scale(11), color: Colors.textMuted, marginTop: scale(3) },
   cardMeta: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.sm },
   cardStat: { fontSize: scale(11), color: Colors.textSecondary, fontWeight: '500' },
+  fab: {
+    position: 'absolute',
+    right: scale(16),
+    backgroundColor: Colors.accent,
+    borderRadius: Radius.full,
+    paddingVertical: scale(12),
+    paddingHorizontal: scale(16),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  fabText: { color: Colors.white, fontSize: scale(13), fontWeight: '800' },
 });

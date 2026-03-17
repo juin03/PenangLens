@@ -13,9 +13,19 @@ const getBaseUrl = () => {
 };
 
 const BASE = getBaseUrl();
-export const API_BASE_URL = `${BASE}/api/v1`;   // Agent/VisionML proxy
+export const API_BASE_URL = `${BASE}/api/v1`;   // Next.js BFF proxy to Agent
 const AUTH_URL = `${BASE}/api/auth`;             // BFF auth
 const DATA_URL = `${BASE}/api`;                  // BFF data
+
+const getVisionUrl = () => {
+  if (__DEV__) {
+    const LAN_IP = '192.168.0.192';
+    if (Platform.OS === 'web') return 'http://localhost:8001';
+    return `http://${LAN_IP}:8001`;
+  }
+  return 'https://your-visionml-url.com';
+};
+export const VISION_BASE_URL = getVisionUrl();
 
 // ──────────────────────────────── Token Management ────────────────────
 
@@ -125,6 +135,28 @@ export async function logout() {
   await clearToken();
 }
 
+export async function forgotPassword(email: string): Promise<{ success: boolean; resetToken?: string }> {
+  const res = await fetch(`${AUTH_URL}/forgot-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) throw new Error('Request failed');
+  return res.json();
+}
+
+export async function resetPassword(token: string, password: string): Promise<void> {
+  const res = await fetch(`${AUTH_URL}/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, password }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Reset failed');
+  }
+}
+
 // ──────────────────────────────── Itinerary API ────────────────────────
 
 export async function saveItinerary(data: {
@@ -134,21 +166,30 @@ export async function saveItinerary(data: {
   const res = await fetch(`${DATA_URL}/itineraries`, {
     method: 'POST', headers, body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error('Failed to save itinerary');
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Unauthorized');
+    throw new Error('Failed to save itinerary');
+  }
   return res.json();
 }
 
 export async function getItineraries() {
   const headers = await authHeaders();
   const res = await fetch(`${DATA_URL}/itineraries`, { headers });
-  if (!res.ok) throw new Error('Failed to fetch itineraries');
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Unauthorized');
+    throw new Error('Failed to fetch itineraries');
+  }
   return res.json();
 }
 
 export async function deleteItinerary(id: string) {
   const headers = await authHeaders();
   const res = await fetch(`${DATA_URL}/itineraries/${id}`, { method: 'DELETE', headers });
-  if (!res.ok) throw new Error('Failed to delete itinerary');
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Unauthorized');
+    throw new Error('Failed to delete itinerary');
+  }
   return res.json();
 }
 
@@ -211,9 +252,9 @@ export const extractItinerary = async (responseText: string, travelMode: string 
 export const scanLandmark = async (imageUri: string) => {
   const formData = new FormData();
   formData.append('image', { uri: imageUri, type: 'image/jpeg', name: 'scan.jpg' } as any);
-  const res = await fetch(`${API_BASE_URL}/scan`, {
+  const res = await fetch(`${VISION_BASE_URL}/pipeline`, {
     method: 'POST', body: formData,
-    headers: { 'Content-Type': 'multipart/form-data' },
+    // Do not set Content-Type header; React Native fetch sets boundary automatically
   });
   if (!res.ok) throw new Error(`Scan failed (${res.status})`);
   return res.json();

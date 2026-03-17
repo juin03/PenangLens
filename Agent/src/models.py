@@ -116,6 +116,10 @@ class ItineraryData(BaseModel):
 class ChatRequest(BaseModel):
     """Chat request from the frontend."""
     message: str = Field(description="User message text", max_length=2000)
+    user_id: Optional[str] = Field(
+        default=None,
+        description="Optional stable user ID for personalization profile sync"
+    )
     thread_id: Optional[str] = Field(
         default=None,
         description="Session thread ID for multi-turn conversations. "
@@ -188,6 +192,10 @@ class GenerateRequest(BaseModel):
         default="",
         description="Free-text trip description, e.g. 'I have 3 hours near Armenian Street'"
     )
+    user_id: Optional[str] = Field(
+        default=None,
+        description="Optional stable user ID for personalization profile sync"
+    )
     interests: list[str] = Field(
         default_factory=list,
         description="Interest tags selected by user, e.g. ['Art', 'Food', 'History']"
@@ -218,3 +226,14 @@ class GenerateResponse(BaseModel):
         description="Token usage and estimated cost for this request"
     )
     success: bool = Field(default=True)
+
+
+class UpsertUserProfileRequest(BaseModel):
+    user_id: str = Field(description="Stable user identifier")
+    interests: list[str] = Field(default_factory=list, description="Onboarding or profile interests")
+    source: str = Field(default="onboarding", description="Source of preference update")
+
+
+class RecommendRequest(BaseModel):
+    interests: list[str] = Field(default_factory=list, description="Interest labels")
+    top_k: int = Field(default=8, ge=1, le=30)

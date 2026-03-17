@@ -83,7 +83,7 @@ export default function SignupScreen() {
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.footer}>PENANG<Text style={{ color: Colors.accent }}>LENS</Text></Text>
+        <Text style={[styles.footer, { marginBottom: Spacing.lg + insets.bottom }]}>PENANG<Text style={{ color: Colors.accent }}>LENS</Text></Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );

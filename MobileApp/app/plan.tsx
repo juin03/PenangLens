@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Radius, Spacing, scale } from '@/constants/theme';
-import { generateItinerary } from '@/api/client';
+import { generateItinerary, saveItinerary } from '@/api/client';
 
 const INTEREST_TAGS = ['Food', 'Art', 'Nature', 'Heritage', 'Nightlife', 'Shopping', 'Culture', 'Beach'];
 
 export default function PlanTripScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [description, setDescription] = useState('');
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [startTime, setStartTime] = useState('09:00');
@@ -32,14 +34,40 @@ export default function PlanTripScreen() {
         ...(startDate ? { start_date: startDate } : {}),
         ...(endDate ? { end_date: endDate } : {}),
       });
-      router.push({ pathname: '/itinerary', params: { data: JSON.stringify(result.structured_itinerary), thread_id: result.thread_id } });
+
+      let itineraryId: string | undefined;
+      try {
+        const structured = result?.structured_itinerary;
+        const serializedStructured = structured ? JSON.stringify(structured) : undefined;
+
+        const saved = await saveItinerary({
+          name: structured?.summary || 'My Penang Trip',
+          originalPrompt: description,
+          generatedNarrative: serializedStructured || result?.response || structured?.summary,
+          totalDuration: structured?.total_duration_min,
+        });
+        itineraryId = saved?.itinerary?.id;
+      } catch {
+        itineraryId = undefined;
+      }
+
+      router.push({
+        pathname: '/itinerary',
+        params: {
+          data: JSON.stringify(result.structured_itinerary),
+          thread_id: result.thread_id,
+          start_time: startTime,
+          end_time: endTime,
+          ...(itineraryId ? { itinerary_id: itineraryId } : {}),
+        },
+      });
     } catch { setError('Failed to generate. Ensure Agent is running.'); }
     finally { setLoading(false); }
   };
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingBottom: scale(32) + insets.bottom }]} keyboardShouldPersistTaps="handled">
         <Text style={styles.label}>Describe Your Ideal Day</Text>
         <TextInput style={styles.textArea} placeholder="E.g. I want to explore heritage sites and eat local food..." placeholderTextColor={Colors.textMuted} multiline numberOfLines={3} value={description} onChangeText={setDescription} />
 

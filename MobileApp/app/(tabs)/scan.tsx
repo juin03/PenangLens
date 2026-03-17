@@ -7,6 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Radius, scale } from '@/constants/theme';
 import { API_BASE_URL } from '@/api/client';
 
+import { scanLandmark } from '@/api/client';
+
 export default function ScanScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -36,13 +38,7 @@ export default function ScanScreen() {
     setCapturedUri(uri);
     setScanning(true);
     try {
-      const formData = new FormData();
-      formData.append('image', { uri, type: 'image/jpeg', name: 'scan.jpg' } as any);
-      const res = await fetch(`${API_BASE_URL}/scan`, {
-        method: 'POST', body: formData,
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      const data = await res.json();
+      const data = await scanLandmark(uri);
       if (data.success) {
         router.push({ pathname: '/landmark/result', params: { data: JSON.stringify(data) } });
       } else {

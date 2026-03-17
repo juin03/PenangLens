@@ -134,14 +134,13 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Dev skip */}
           {__DEV__ && (
             <TouchableOpacity style={styles.devBtn} onPress={handleDevSkip}>
               <Text style={styles.devText}>⚡ Dev: Skip to App</Text>
             </TouchableOpacity>
           )}
 
-          <Text style={styles.footer}>PENANG<Text style={styles.brandAccent}>LENS</Text></Text>
+          <Text style={[styles.footer, { marginBottom: Spacing.lg + insets.bottom }]}>PENANG<Text style={styles.brandAccent}>LENS</Text></Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

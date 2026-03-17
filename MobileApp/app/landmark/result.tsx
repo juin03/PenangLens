@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, FlatList, Image, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, FlatList, Image, ActivityIndicator, Modal } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Radius, Spacing, scale } from '@/constants/theme';
-import { API_BASE_URL, saveScanResult, chatWithAgent } from '@/api/client';
+import { API_BASE_URL, saveScanResult, chatWithAgent, getToken } from '@/api/client';
 
 type TabType = 'result' | 'details' | 'chat';
 interface ChatMsg { role: 'user' | 'assistant'; content: string; }
@@ -30,6 +31,7 @@ function pickNearby(spots: SpotData[], currentId: string, max = 3): SpotData[] {
 export default function LandmarkResultScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<TabType>('result');
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([
@@ -37,6 +39,79 @@ export default function LandmarkResultScreen() {
   ]);
   const [chatLoading, setChatLoading] = useState(false);
   const [threadId, setThreadId] = useState<string | undefined>(undefined);
+  const [ratedMessages, setRatedMessages] = useState<Record<number, 1 | -1>>({});
+  const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [pendingBadFeedback, setPendingBadFeedback] = useState<{ idx: number; aiMessage: string; userMessage?: string } | null>(null);
+  const [scanRecordId, setScanRecordId] = useState<string | null>(null);
+  const [scanFeedbackSubmitted, setScanFeedbackSubmitted] = useState(false);
+  const [scanFeedbackModalVisible, setScanFeedbackModalVisible] = useState(false);
+  const [scanFeedbackComment, setScanFeedbackComment] = useState('');
+
+  const sendChatFeedback = async (idx: number, rating: 1 | -1, aiMessage: string, userMessage?: string, comment?: string) => {
+    const BASE = API_BASE_URL.replace('/api/v1', '');
+    try {
+      const token = await getToken();
+      const res = await fetch(`${BASE}/api/v1/feedback/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ rating, aiMessage, userMessage, context: landmarkName, comment }),
+      });
+
+      if (!res.ok) throw new Error(`Feedback save failed (${res.status})`);
+      setRatedMessages(prev => ({ ...prev, [idx]: rating }));
+    } catch (error) {
+      console.warn('Failed to submit chat feedback:', error);
+    }
+  };
+
+  const submitBadFeedback = async () => {
+    if (!pendingBadFeedback) return;
+    await sendChatFeedback(
+      pendingBadFeedback.idx,
+      -1,
+      pendingBadFeedback.aiMessage,
+      pendingBadFeedback.userMessage,
+      feedbackComment.trim() || undefined,
+    );
+    setFeedbackComment('');
+    setPendingBadFeedback(null);
+    setFeedbackModalVisible(false);
+  };
+
+  const submitScanFeedback = async (verdict: 'good' | 'bad', comment?: string) => {
+    if (!scanRecordId || scanFeedbackSubmitted) return;
+    try {
+      const BASE = API_BASE_URL.replace('/api/v1', '');
+      const token = await getToken();
+      const response = await fetch(`${BASE}/api/v1/feedback/scan`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          recognitionId: scanRecordId,
+          verdict,
+          comment,
+        }),
+      });
+
+      if (!response.ok) return;
+      setScanFeedbackSubmitted(true);
+    } catch {
+      // keep silent for non-blocking UX
+    }
+  };
+
+  const submitBadScanFeedback = async () => {
+    await submitScanFeedback('bad', scanFeedbackComment.trim() || undefined);
+    setScanFeedbackComment('');
+    setScanFeedbackModalVisible(false);
+  };
 
   const [nearbySpots, setNearbySpots] = useState<SpotData[]>([]);
   const [spotContent, setSpotContent] = useState<{overview?: string; history?: string; culture?: string; funFacts?: string} | null>(null);
@@ -90,6 +165,8 @@ export default function LandmarkResultScreen() {
     saveScanResult({
       poiId: scanData.poi_id ?? undefined,
       aiDetails: { poi_name: scanData.poi_name, detections: scanData.detections, model: scanData.model },
+    }).then((data) => {
+      if (data?.scan?.id) setScanRecordId(data.scan.id);
     }).catch(() => {}); // silent — don't break UX
   }, []);
 
@@ -165,6 +242,23 @@ export default function LandmarkResultScreen() {
               <Text style={styles.landmarkName}>{landmarkName}</Text>
               {isScanResult && confidence > 0 && (
                 <Text style={styles.confText}>{confidence}% Match Confidence</Text>
+              )}
+
+              {isScanResult && (
+                <View style={{ marginTop: scale(8) }}>
+                  {scanFeedbackSubmitted ? (
+                    <Text style={styles.scanFeedbackThanks}>✅ Feedback submitted</Text>
+                  ) : (
+                    <View style={styles.scanFeedbackRow}>
+                      <TouchableOpacity style={styles.scanFeedbackBtn} onPress={() => { void submitScanFeedback('good'); }}>
+                        <Text style={styles.scanFeedbackBtnText}>👍 Good</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.scanFeedbackBtn} onPress={() => setScanFeedbackModalVisible(true)}>
+                        <Text style={styles.scanFeedbackBtnText}>👎 Bad</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
               )}
             </View>
           </View>
@@ -251,11 +345,42 @@ export default function LandmarkResultScreen() {
             data={chatMessages}
             keyExtractor={(_, i) => i.toString()}
             contentContainerStyle={{ padding: Spacing.md, paddingBottom: scale(70) }}
-            renderItem={({ item }) => (
-              <View style={[styles.bubble, item.role === 'user' ? styles.userBubble : styles.aiBubble]}>
-                <Text style={[styles.bubbleText, item.role === 'user' && { color: Colors.white }]}>{item.content}</Text>
-              </View>
-            )}
+            renderItem={({ item, index }) => {
+              const isUser = item.role === 'user';
+              const prevUserMsg = chatMessages.slice(0, index).reverse().find(m => m.role === 'user')?.content;
+              return (
+                <View style={{ marginBottom: Spacing.sm }}>
+                  <View style={[styles.bubble, isUser ? styles.userBubble : styles.aiBubble]}>
+                    <Text style={[styles.bubbleText, isUser && { color: Colors.white }]}>{item.content}</Text>
+                  </View>
+                  {!isUser && (
+                    <View style={styles.feedbackRow}>
+                      {([1, -1] as const).map(r => {
+                        const voted = ratedMessages[index];
+                        const active = voted === r;
+                        return (
+                          <TouchableOpacity
+                            key={r}
+                            disabled={voted !== undefined}
+                            onPress={() => {
+                              if (r === 1) {
+                                void sendChatFeedback(index, 1, item.content, prevUserMsg);
+                              } else {
+                                setPendingBadFeedback({ idx: index, aiMessage: item.content, userMessage: prevUserMsg });
+                                setFeedbackModalVisible(true);
+                              }
+                            }}
+                            style={[styles.feedbackBtn, active && styles.feedbackBtnActive]}
+                          >
+                            <Text style={{ fontSize: scale(13) }}>{r === 1 ? '👍 Good' : '👎 Bad'}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+              );
+            }}
           />
           {/* Quick suggestions */}
           <View style={styles.suggestRow}>
@@ -265,14 +390,62 @@ export default function LandmarkResultScreen() {
               </TouchableOpacity>
             ))}
           </View>
-          <View style={styles.chatBar}>
+          <View style={[styles.chatBar, { paddingBottom: Spacing.sm + insets.bottom }]}>
             <TextInput style={styles.chatInput} placeholder="Ask something else..." placeholderTextColor={Colors.textMuted} value={chatInput} onChangeText={setChatInput} />
             <TouchableOpacity style={styles.chatSend} onPress={handleChat} disabled={chatLoading}>
               <Text style={styles.chatSendText}>{chatLoading ? '...' : '↑'}</Text>
             </TouchableOpacity>
           </View>
+
+          <Modal visible={feedbackModalVisible} transparent animationType="fade" onRequestClose={() => setFeedbackModalVisible(false)}>
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalBox}>
+                <Text style={styles.modalTitle}>What was bad about this answer? 👎</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="Optional: tell us what should improve"
+                  placeholderTextColor={Colors.textMuted}
+                  value={feedbackComment}
+                  onChangeText={setFeedbackComment}
+                  multiline
+                />
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity style={styles.modalCancel} onPress={() => setFeedbackModalVisible(false)}>
+                    <Text style={{ color: Colors.textSecondary }}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.modalSubmit} onPress={() => { void submitBadFeedback(); }}>
+                    <Text style={{ color: Colors.white, fontWeight: '700' }}>Submit</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
         </View>
       )}
+
+      <Modal visible={scanFeedbackModalVisible} transparent animationType="fade" onRequestClose={() => setScanFeedbackModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>What was bad about this scan? 👎</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Optional: tell us what was wrong"
+              placeholderTextColor={Colors.textMuted}
+              value={scanFeedbackComment}
+              onChangeText={setScanFeedbackComment}
+              multiline
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancel} onPress={() => setScanFeedbackModalVisible(false)}>
+                <Text style={{ color: Colors.textSecondary }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalSubmit} onPress={() => { void submitBadScanFeedback(); }}>
+                <Text style={{ color: Colors.white, fontWeight: '700' }}>Submit</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -299,6 +472,10 @@ const styles = StyleSheet.create({
   landmarkBadgeIcon: { fontSize: scale(22) },
   landmarkName: { fontSize: scale(16), fontWeight: '700', color: Colors.textPrimary },
   confText: { fontSize: scale(12), color: Colors.success, fontWeight: '600', marginTop: scale(2) },
+  scanFeedbackRow: { flexDirection: 'row', gap: Spacing.xs, marginTop: scale(6) },
+  scanFeedbackBtn: { borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.inputBg, borderRadius: Radius.full, paddingVertical: scale(5), paddingHorizontal: scale(10) },
+  scanFeedbackBtnText: { fontSize: scale(11), color: Colors.textPrimary, fontWeight: '600' },
+  scanFeedbackThanks: { fontSize: scale(11), color: Colors.success, fontWeight: '600' },
   sectionTitle: { fontSize: scale(14), fontWeight: '700', color: Colors.textPrimary, marginBottom: Spacing.sm, marginTop: Spacing.sm },
   descText: { fontSize: scale(13), color: Colors.textSecondary, lineHeight: scale(19) },
   similarCard: { backgroundColor: Colors.white, borderRadius: Radius.md, padding: scale(10), marginRight: Spacing.sm, alignItems: 'center', width: scale(90) },
@@ -321,4 +498,15 @@ const styles = StyleSheet.create({
   chatInput: { flex: 1, backgroundColor: Colors.inputBg, borderRadius: Radius.full, paddingHorizontal: Spacing.md, paddingVertical: scale(8), fontSize: scale(13), color: Colors.textPrimary },
   chatSend: { width: scale(36), height: scale(36), borderRadius: scale(18), backgroundColor: Colors.accent, justifyContent: 'center', alignItems: 'center' },
   chatSendText: { color: Colors.white, fontSize: scale(16), fontWeight: '700' },
+  feedbackRow: { flexDirection: 'row', gap: scale(6), marginTop: scale(3), paddingLeft: scale(4) },
+  feedbackBtn: { paddingHorizontal: scale(8), paddingVertical: scale(3), borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.white },
+  feedbackBtnActive: { backgroundColor: Colors.accentLight, borderColor: Colors.accent },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalBox: { backgroundColor: Colors.white, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, padding: Spacing.lg, paddingBottom: scale(36) },
+  modalTitle: { fontSize: scale(16), fontWeight: '800', color: Colors.textPrimary, marginBottom: Spacing.md },
+  modalInput: { backgroundColor: Colors.inputBg, borderRadius: Radius.md, padding: Spacing.sm, fontSize: scale(13), color: Colors.textPrimary, minHeight: scale(60), textAlignVertical: 'top', marginBottom: Spacing.md },
+  modalButtons: { flexDirection: 'row', gap: Spacing.sm },
+  modalCancel: { flex: 1, padding: Spacing.sm, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, alignItems: 'center' },
+  modalSubmit: { flex: 1, padding: Spacing.sm, borderRadius: Radius.md, backgroundColor: '#7c3aed', alignItems: 'center' },
 });
