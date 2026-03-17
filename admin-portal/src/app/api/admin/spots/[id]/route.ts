@@ -3,6 +3,14 @@ import { prisma } from '@/lib/prisma';
 
 const AGENT_BASE_URL = process.env.AGENT_BASE_URL || 'http://127.0.0.1:8000';
 
+function isValidLatLng(location: string): boolean {
+  const parts = String(location || '').replace(/[°NSEW\s]/g, '').split(',');
+  if (parts.length !== 2) return false;
+  const lat = Number(parts[0]);
+  const lng = Number(parts[1]);
+  return !Number.isNaN(lat) && !Number.isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
 /** Fire-and-forget: index spot into Azure AI Search via Agent microservice */
 async function triggerIndex(spot: {
   id: string; name: string; type: string; description?: string | null;
@@ -36,19 +44,42 @@ export async function GET(
   try {
     const landmark = await prisma.landmark.findUnique({
       where: { id },
-      include: { pois: true, tags: { include: { tag: true } }, creator: true },
+          include: { 
+            pois: { 
+              include: { images: { take: 10, orderBy: { createdAt: 'asc' } } },
+              orderBy: { createdAt: 'asc' },
+            }, 
+            tags: { include: { tag: true } }, 
+            creator: true 
+          },
     });
     if (landmark) {
+      // Collect all images from child POIs so mobile can show a hero image
+      const allImages = landmark.pois.flatMap(poi =>
+        poi.images.map(img => ({ id: img.id, url: img.imageUrl, filename: img.caption || 'image.jpg' }))
+      );
       return NextResponse.json({
-        spot: { ...landmark, type: 'landmark', tags: landmark.tags.map(t => t.tag.name) },
+        spot: {
+          ...landmark,
+          type: 'landmark',
+          tags: landmark.tags.map(t => t.tag.name),
+          images: allImages,
+        },
       });
     }
 
     const poi = await prisma.pointOfInterest.findUnique({
       where: { id },
-      include: { images: true, landmark: true, creator: true },
+          include: { images: true, landmark: true, creator: true },
     });
-    if (poi) return NextResponse.json({ spot: { ...poi, type: 'poi' } });
+    if (poi) {
+      const mappedImages = poi.images.map(img => ({
+        id: img.id,
+        url: img.imageUrl,
+        filename: img.caption || 'image.jpg'
+      }));
+      return NextResponse.json({ spot: { ...poi, images: mappedImages, type: 'poi' } });
+    }
 
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   } catch (error) {
@@ -64,6 +95,10 @@ export async function PATCH(
   const { id } = await params;
   const body = await request.json();
   const { name, description, location, status, content, type } = body;
+
+  if (location && !isValidLatLng(location)) {
+    return NextResponse.json({ error: 'Location must be valid GPS coordinates in lat,lng format' }, { status: 400 });
+  }
 
   try {
     let updatedSpot: any;

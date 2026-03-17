@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 
@@ -29,6 +29,7 @@ export default function SpotsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [tagFilter, setTagFilter] = useState('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -66,6 +67,23 @@ export default function SpotsPage() {
     setLoading(false);
   };
 
+  useEffect(() => {
+    if (search.length > 0) {
+      const newExpanded = new Set(expanded);
+      let changed = false;
+      const searchLower = search.toLowerCase();
+      spots.forEach(s => {
+        if (s.pois?.some(p => p.name.toLowerCase().includes(searchLower))) {
+          if (!newExpanded.has(s.id)) {
+            newExpanded.add(s.id);
+            changed = true;
+          }
+        }
+      });
+      if (changed) setExpanded(newExpanded);
+    }
+  }, [search, spots]);
+
   const toggleExpand = (id: string) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleSelect = (id: string) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -89,8 +107,12 @@ export default function SpotsPage() {
   };
 
   const handleCreateLandmark = async () => {
+    if (!lmForm.lat || !lmForm.lng) {
+      alert('Please set GPS coordinates (latitude and longitude) before creating this landmark.');
+      return;
+    }
     setSaving(true);
-    const location = lmForm.lat && lmForm.lng ? `${parseFloat(lmForm.lat).toFixed(6)},${parseFloat(lmForm.lng).toFixed(6)}` : lmForm.location;
+    const location = `${parseFloat(lmForm.lat).toFixed(6)},${parseFloat(lmForm.lng).toFixed(6)}`;
     try {
       const res = await fetch('/api/admin/spots', {
         method: 'POST',
@@ -106,8 +128,12 @@ export default function SpotsPage() {
   };
 
   const handleCreatePOI = async () => {
+    if (!poiForm.lat || !poiForm.lng) {
+      alert('Please set GPS coordinates (latitude and longitude) before creating this POI.');
+      return;
+    }
     setSaving(true);
-    const location = poiForm.lat && poiForm.lng ? `${parseFloat(poiForm.lat).toFixed(6)},${parseFloat(poiForm.lng).toFixed(6)}` : poiForm.location;
+    const location = `${parseFloat(poiForm.lat).toFixed(6)},${parseFloat(poiForm.lng).toFixed(6)}`;
     try {
       const res = await fetch('/api/admin/spots', {
         method: 'POST',
@@ -155,11 +181,22 @@ export default function SpotsPage() {
   };
 
   const landmarks = spots.filter(s => s.type === 'landmark');
+  
+  const searchLower = search.toLowerCase();
   const filtered = spots.filter(s => {
-    const ms = s.name.toLowerCase().includes(search.toLowerCase());
+    const parentMatches = s.name.toLowerCase().includes(searchLower);
+    const childMatches = s.pois?.some(p => p.name.toLowerCase().includes(searchLower)) ?? false;
+    const ms = searchLower === '' ? true : (parentMatches || childMatches);
     const mf = statusFilter === 'all' || s.status === statusFilter;
-    return ms && mf;
+    const mt = tagFilter === 'all' || (s.tags && s.tags.includes(tagFilter));
+    return ms && mf && mt;
   });
+
+  // Default sort alphabetically if no search is typed
+  if (!search) {
+    filtered.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   const fmt = (d: string) => new Date(d).toLocaleString('en-MY', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   return (
@@ -183,6 +220,10 @@ export default function SpotsPage() {
             <option value="all">Status: All</option>
             <option value="published">Published</option>
             <option value="draft">Draft</option>
+          </select>
+          <select className="form-input form-select" style={{ width: 160 }} value={tagFilter} onChange={e => setTagFilter(e.target.value)}>
+            <option value="all">Category: All</option>
+            {CATEGORY_TAGS.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
       </div>
@@ -218,7 +259,7 @@ export default function SpotsPage() {
                 No spots yet. Click <strong>+ Add New Spot</strong> to create your first landmark!
               </td></tr>
             ) : filtered.map(spot => (
-              <>
+              <React.Fragment key={spot.id}>
                 <tr key={spot.id}>
                   <td><input type="checkbox" className="checkbox" checked={selected.has(spot.id)} onChange={() => toggleSelect(spot.id)} /></td>
                   <td>
@@ -260,7 +301,7 @@ export default function SpotsPage() {
                     </td>
                   </tr>
                 ))}
-              </>
+              </React.Fragment>
             ))}
           </tbody>
         </table>
@@ -358,7 +399,7 @@ export default function SpotsPage() {
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowModal(false)}>Cancel</button>
                   <button className="btn btn-primary" style={{ flex: 2 }} onClick={handleCreateLandmark}
-                    disabled={!lmForm.name || !lmForm.description || lmForm.tags.length === 0 || (!lmForm.lat && !lmForm.location) || saving}>
+                    disabled={!lmForm.name || !lmForm.description || lmForm.tags.length === 0 || !lmForm.lat || !lmForm.lng || saving}>
                     {saving ? 'Creating...' : '🏛️ Create Landmark'}
                   </button>
                 </div>
@@ -416,7 +457,7 @@ export default function SpotsPage() {
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowModal(false)}>Cancel</button>
                   <button className="btn btn-primary" style={{ flex: 2, background: '#22c55e', borderColor: '#22c55e' }} onClick={handleCreatePOI}
-                    disabled={!poiForm.name || !poiForm.landmarkId || !poiForm.description || (!poiForm.lat && !poiForm.location) || saving}>
+                    disabled={!poiForm.name || !poiForm.landmarkId || !poiForm.description || !poiForm.lat || !poiForm.lng || saving}>
                     {saving ? 'Creating...' : '📍 Create POI'}
                   </button>
                 </div>

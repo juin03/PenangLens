@@ -8,11 +8,20 @@ interface SpotData {
   id: string; name: string; type: string; status: string;
   description?: string; location?: string;
   content?: { overview?: string; history?: string; culture?: string; funFacts?: string };
+  images?: { id: string; url: string; filename: string }[];
 }
 
 const TABS = ['Overview', 'History', 'Culture', 'Fun Facts'] as const;
 const TAB_KEYS = ['overview', 'history', 'culture', 'funFacts'] as const;
 type TabKey = typeof TAB_KEYS[number];
+
+function isValidLatLng(location?: string): boolean {
+  const parts = String(location || '').replace(/[°NSEW\s]/g, '').split(',');
+  if (parts.length !== 2) return false;
+  const lat = Number(parts[0]);
+  const lng = Number(parts[1]);
+  return !Number.isNaN(lat) && !Number.isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
 
 export default function SpotDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -27,6 +36,12 @@ export default function SpotDetailPage() {
   const [saving, setSaving] = useState(false);
   const [curating, setCurating] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [deletingImages, setDeletingImages] = useState(false);
+  const [aiInstructions, setAiInstructions] = useState('');
+  const [showCurateModal, setShowCurateModal] = useState(false);
+
+  // Image Upload state
+  const [uploadState, setUploadState] = useState<{file: File, status: string}[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -46,6 +61,10 @@ export default function SpotDetailPage() {
   };
 
   const handleSave = async (status?: string) => {
+    if (!spot?.location || !isValidLatLng(spot.location)) {
+      alert('Location must be GPS coordinates in lat,lng format (example: 5.416400,100.332700).');
+      return;
+    }
     setSaving(true);
     const payload = { ...spot, content, type: spot?.type, status: status || spot?.status };
     const res = await fetch(`/api/admin/spots/${id}`, {
@@ -62,7 +81,11 @@ export default function SpotDetailPage() {
   const handleAICurate = async () => {
     setCurating(true);
     try {
-      const res = await fetch(`/api/admin/spots/${id}/curate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const res = await fetch(`/api/admin/spots/${id}/curate`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ instructions: aiInstructions }) 
+      });
       const data = await res.json();
       if (data.content) {
         setContent({
@@ -75,12 +98,56 @@ export default function SpotDetailPage() {
       }
     } catch { alert('AI curation failed. Is the Agent running?'); }
     setCurating(false);
+    setShowCurateModal(false);
   };
 
   const handleDelete = async () => {
     if (!confirm('Delete this spot permanently?')) return;
     await fetch(`/api/admin/spots/${id}`, { method: 'DELETE' });
     router.push('/admin/spots');
+  };
+
+  const handleImageUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const newFiles = Array.from(files).map(f => ({ file: f, status: 'uploading' }));
+    setUploadState(p => [...p, ...newFiles]);
+
+    for (const item of newFiles) {
+      const fd = new FormData();
+      fd.append('image', item.file);
+      try {
+        const res = await fetch(`/api/admin/spots/${id}/images`, { method: 'POST', body: fd });
+        if (res.ok) {
+          setUploadState(p => p.map(u => u.file === item.file ? { ...u, status: 'success' } : u));
+        } else {
+          setUploadState(p => p.map(u => u.file === item.file ? { ...u, status: 'error' } : u));
+        }
+      } catch {
+        setUploadState(p => p.map(u => u.file === item.file ? { ...u, status: 'error' } : u));
+      }
+    }
+    // Clear success after 3 seconds
+    setTimeout(() => {
+      setUploadState(p => p.filter(u => u.status !== 'success'));
+    }, 3000);
+  };
+
+  const handleDeleteImages = async () => {
+    if (!confirm('Are you sure you want to delete all indexed images for this spot?')) return;
+    setDeletingImages(true);
+    try {
+      const res = await fetch(`/api/admin/spots/${id}/images`, { method: 'DELETE' });
+      if (res.ok) {
+        setSpot(prev => prev ? { ...prev, images: [] } : prev);
+        alert('All images deleted successfully.');
+      } else {
+        const err = await res.json();
+        alert(`Failed to delete images: ${err.error}`);
+      }
+    } catch {
+      alert('Failed to delete images.');
+    }
+    setDeletingImages(false);
   };
 
   if (loading) return <div style={{ padding: 60, textAlign: 'center', color: '#9ca3af' }}>Loading...</div>;
@@ -106,7 +173,7 @@ export default function SpotDetailPage() {
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="btn btn-danger" onClick={handleDelete}>🗑 Delete Spot</button>
-          <button className="btn btn-ai" onClick={handleAICurate} disabled={curating}>
+          <button className="btn btn-ai" onClick={() => setShowCurateModal(true)} disabled={curating}>
             {curating ? '⏳ Curating...' : '✨ AI Curate Content'}
           </button>
           <button className="btn btn-primary" onClick={() => handleSave(spot.status === 'draft' ? 'published' : 'draft')} disabled={saving}>
@@ -132,8 +199,8 @@ export default function SpotDetailPage() {
                   <input className="form-input" value={spot.type === 'landmark' ? 'Landmark' : 'Point of Interest'} disabled style={{ background: '#f9fafb' }} />
                 </div>
                 <div style={{ gridColumn: '1/-1' }}>
-                  <label className="form-label">Location (GPS or Address)</label>
-                  <input className="form-input" placeholder="e.g. 5.4215° N, 100.3351° E"
+                  <label className="form-label">Location (GPS coordinates only)</label>
+                  <input className="form-input" placeholder="e.g. 5.421500,100.335100"
                     value={spot.location || ''} onChange={e => { setSpot(p => p ? { ...p, location: e.target.value } : p); setDirty(true); }} />
                 </div>
                 <div style={{ gridColumn: '1/-1' }}>
@@ -215,6 +282,63 @@ export default function SpotDetailPage() {
             </div>
           </div>
 
+          {/* Reference Images Bulk Upload */}
+          <div className="card" style={{ marginTop: 16 }}>
+            <div className="card-header" style={{ fontWeight: 700, fontSize: 14 }}>Reference Images</div>
+            <div className="card-body">
+              <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+                Upload multiple photos to train the DINOv2 vision model for scanning.
+              </p>
+              
+              <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '2px dashed #d1d5db', borderRadius: 8, padding: '20px', cursor: 'pointer', background: '#f9fafb' }}>
+                <span style={{ fontSize: 24, marginBottom: 4 }}>📸</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: '#374151', textAlign: 'center' }}>Click to bulk upload</span>
+                <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={e => handleImageUpload(e.target.files)} />
+              </label>
+
+              {uploadState.length > 0 && (
+                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {uploadState.map((img, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, padding: '6px 10px', background: '#f3f4f6', borderRadius: 4 }}>
+                      <span style={{ color: '#374151', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{img.file.name}</span>
+                      <span style={{ fontWeight: 600, color: img.status === 'success' ? '#22c55e' : img.status === 'error' ? '#ef4444' : '#f59e0b' }}>
+                        {img.status === 'uploading' ? 'Indexing...' : img.status === 'success' ? 'Indexed ✓' : 'Failed ✗'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {spot.images && spot.images.length > 0 && (
+                <div style={{ marginTop: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', margin: 0 }}>Indexed Reference Images ({spot.images.length})</p>
+                    <button 
+                      className="btn btn-danger" 
+                      style={{ padding: '4px 10px', fontSize: 11 }}
+                      onClick={handleDeleteImages}
+                      disabled={deletingImages}
+                    >
+                      {deletingImages ? 'Deleting...' : '🗑 Delete All'}
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                    {spot.images.map((img: any) => (
+                      <div key={img.id} style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid #e5e7eb', height: 75 }}>
+                        {/* Note: In older data, url was an ID. We handle both styles here. */}
+                        <img 
+                          src={img.url.startsWith('/') ? img.url : `/uploads/images/${img.url}.jpg`} 
+                          alt={img.filename} 
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Map placeholder */}
           <div className="card" style={{ marginTop: 16, overflow: 'hidden' }}>
             <div style={{ height: 160, background: '#e8f0fe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8, color: '#6b7280', fontSize: 13 }}>
@@ -225,6 +349,38 @@ export default function SpotDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* AI Curation Modal */}
+      {showCurateModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 500, padding: 0, overflow: 'hidden' }}>
+            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700 }}>✨ AI Content Curation</span>
+              <button onClick={() => setShowCurateModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#9ca3af' }}>&times;</button>
+            </div>
+            <div className="card-body">
+              <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+                Provide optional context (like Wikipedia text) or specific instructions to guide the AI in generating content for <strong>{spot.name}</strong>.
+              </p>
+              <label className="form-label">Instructions / Context</label>
+              <textarea 
+                className="form-textarea" 
+                rows={8} 
+                style={{ fontSize: 13 }}
+                placeholder="e.g. Paste wikipedia history here, or say 'Refine the fun facts to be more exciting'..." 
+                value={aiInstructions}
+                onChange={e => setAiInstructions(e.target.value)}
+              />
+            </div>
+            <div style={{ padding: '16px 24px', background: '#f9fafb', borderTop: '1px solid #f0f0f0', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button className="btn btn-outline" onClick={() => setShowCurateModal(false)}>Cancel</button>
+              <button className="btn btn-ai" onClick={handleAICurate} disabled={curating}>
+                {curating ? '⏳ Generating...' : '✨ Start Curation'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

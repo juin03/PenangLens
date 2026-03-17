@@ -35,7 +35,7 @@ function loadGoogleMapsScript(onLoad: () => void) {
   scriptLoading = true;
 
   const script = document.createElement('script');
-  script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}&libraries=places&loading=async`;
+  script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}&libraries=places`;
   script.async = true;
   script.defer = true;
   script.onload = () => {
@@ -68,6 +68,12 @@ export default function GoogleMap({
 
   useEffect(() => {
     if (!loaded || !containerRef.current) return;
+    
+    // Safety check: ensure google.maps.Map constructor is ready
+    if (typeof google === 'undefined' || !google.maps || !google.maps.Map) {
+      const timer = setTimeout(() => setLoaded(true), 100); // Retry after 100ms
+      return () => clearTimeout(timer);
+    }
 
     // Init map
     const map = new google.maps.Map(containerRef.current, {

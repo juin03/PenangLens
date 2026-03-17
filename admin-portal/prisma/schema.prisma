@@ -18,6 +18,8 @@ model User {
   provider          String   @default("local") // 'local' | 'google'
   providerAccountId String?  @map("provider_account_id")
   role              String   @default("user") // 'user' | 'admin'
+  resetToken        String?  @map("reset_token")
+  resetTokenExpiry  DateTime? @map("reset_token_expiry")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -28,6 +30,8 @@ model User {
   createdPois      PointOfInterest[]    @relation("PoiCreator")
   createdImages    PoiImage[]           @relation("ImageCreator")
   createdLandmarks Landmark[]           @relation("LandmarkCreator")
+  chatFeedbacks    ChatFeedback[]
+  itineraryFeedbacks ItineraryFeedback[]
 
   @@map("users")
 }
@@ -136,6 +140,7 @@ model Itinerary {
   user        User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   stops       ItineraryStop[]
   chatHistory ItineraryChatHistory[]
+  feedbacks   ItineraryFeedback[]
 
   @@map("itineraries")
 }
@@ -199,6 +204,34 @@ model RecognitionFeedback {
   user        User               @relation(fields: [userId], references: [id])
 
   @@map("recognition_feedback")
+}
+
+model ChatFeedback {
+  id          String   @id @default(uuid()) @map("chat_feedback_id")
+  rating      Int      // 1 = thumbs up, -1 = thumbs down
+  aiMessage   String   @map("ai_message") @db.Text
+  userMessage String?  @map("user_message") @db.Text
+  context     String?  // spot name or page context
+  createdAt   DateTime @default(now()) @map("created_at")
+  userId      String?  @map("user_id")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("chat_feedback")
+}
+
+model ItineraryFeedback {
+  id          String    @id @default(uuid()) @map("itinerary_feedback_id")
+  rating      Int       // 1–5 stars
+  comment     String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at")
+  itineraryId String    @map("itinerary_id")
+  userId      String?   @map("user_id")
+
+  itinerary Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("itinerary_feedback")
 }
 
 model ChatHistory {

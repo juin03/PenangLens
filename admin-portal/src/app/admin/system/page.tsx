@@ -28,8 +28,8 @@ export default function SystemAdminPage() {
         <div className="stat-card">
           <div className="stat-label">Agent Status</div>
           <div className="stat-value" style={{ fontSize: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: health?.status === 'ok' ? '#22c55e' : '#ef4444', display: 'inline-block' }} />
-            {loading ? '...' : health?.status === 'ok' ? 'Online' : 'Offline'}
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: health?.status === 'ok' || health?.status === 'healthy' ? '#22c55e' : '#ef4444', display: 'inline-block' }} />
+            {loading ? '...' : health?.status === 'ok' || health?.status === 'healthy' ? 'Online' : 'Offline'}
           </div>
         </div>
         <div className="stat-card">

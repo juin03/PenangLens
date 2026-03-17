@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+function isValidLatLng(location: string): boolean {
+  const parts = String(location || '').replace(/[°NSEW\s]/g, '').split(',');
+  if (parts.length !== 2) return false;
+  const lat = Number(parts[0]);
+  const lng = Number(parts[1]);
+  return !Number.isNaN(lat) && !Number.isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Get all landmarks with their POI counts and child POIs
@@ -46,6 +54,9 @@ export async function POST(request: NextRequest) {
     const { name, type, description, location, landmarkId, tags, searchPrompts, status } = body;
 
     if (!name) return NextResponse.json({ error: 'Name is required' }, { status: 400 });
+    if (!location || !isValidLatLng(location)) {
+      return NextResponse.json({ error: 'Location must be valid GPS coordinates in lat,lng format' }, { status: 400 });
+    }
 
     if (type === 'poi') {
       const poi = await prisma.pointOfInterest.create({
