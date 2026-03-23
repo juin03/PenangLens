@@ -1,23 +1,26 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Linking,
-  TextInput, ActivityIndicator, Modal, KeyboardAvoidingView, Platform, Alert,
+  TextInput, ActivityIndicator, Modal, KeyboardAvoidingView, Platform, Alert, Image, ScrollView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Radius, Spacing, scale } from '@/constants/theme';
-import { API_BASE_URL, getToken } from '@/api/client';
+import { API_BASE_URL, getToken, saveChatMessages } from '@/api/client';
+import { MarkdownText } from '@/components/MarkdownText';
 
 /* ─── Types ─────────────────────────────────────────────── */
 interface Stop {
   order?: number; name: string; visit_duration_min?: number;
   short_description?: string; description?: string; google_maps_url?: string;
+  photo_url?: string; lat?: number; lng?: number;
+  rating?: number; address?: string; opening_hours?: string; phone?: string;
+  arrival_time?: string; departure_time?: string;
   travel_to_next?: { duration_text: string; distance_text: string };
 }
 interface ItineraryData {
   stops: Stop[]; summary?: string; total_duration_min?: number; total_distance?: string;
-  start_time?: string;
-  end_time?: string;
+  start_time?: string; end_time?: string; travel_mode?: string; total_travel_time_min?: number;
 }
 interface PlanMessage { type: 'plan'; version: number; data: ItineraryData; }
 interface ChatMessage { type: 'message'; role: 'user' | 'ai'; text: string; }
@@ -46,10 +49,11 @@ function extractTimeWindowFromText(text: string): { start_time: string; end_time
 
 /* ─── Plan Card ─────────────────────────────────────────── */
 function PlanCard({
-  item, onRate
+  item, onRate, onStopPress
 }: {
   item: PlanMessage & { id: string };
   onRate: (itineraryId: string, verdict: 'good' | 'bad', comment?: string) => Promise<boolean>;
+  onStopPress: (stop: Stop) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [rated, setRated] = useState(false);
@@ -84,33 +88,43 @@ function PlanCard({
             ) : null}
             <Text style={styles.planMetaText}>⏱️ {d.total_duration_min ? `${Math.round(d.total_duration_min / 60 * 10) / 10}h` : '—'}</Text>
             <Text style={styles.planMetaText}>📍 {d.stops.length} stops</Text>
-            <Text style={styles.planMetaText}>🚶 {d.total_distance || '—'}</Text>
+            {d.total_travel_time_min ? (
+              <Text style={styles.planMetaText}>
+                {d.travel_mode === 'driving' ? '🚗' : d.travel_mode === 'transit' ? '🚌' : '🚶'} {Math.round(d.total_travel_time_min)} min commute
+              </Text>
+            ) : null}
           </View>
         </View>
         <Text style={{ fontSize: scale(14), color: '#7c3aed' }}>{collapsed ? '▼' : '▲'}</Text>
       </TouchableOpacity>
+      {d.route_url ? (
+        <TouchableOpacity onPress={() => Linking.openURL(d.route_url!)} style={{ paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, backgroundColor: '#f3e8ff', borderBottomLeftRadius: 8, borderBottomRightRadius: 8 }}>
+          <Text style={{ color: '#7c3aed', fontSize: scale(12), fontWeight: '600', textAlign: 'center' }}>🗺️ View full route in Google Maps →</Text>
+        </TouchableOpacity>
+      ) : null}
 
       {/* Stops */}
       {!collapsed && d.stops.map((stop, i) => (
         <View key={i}>
-          <View style={styles.stopRow}>
-            <View style={styles.stopBadge}><Text style={styles.stopBadgeText}>{stop.order ?? i + 1}</Text></View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.stopName}>{stop.name}</Text>
-              {stop.visit_duration_min ? <Text style={styles.stopDur}>⏱️ {stop.visit_duration_min} min</Text> : null}
-              {stop.short_description ? <Text style={styles.stopShort} numberOfLines={1}>{stop.short_description}</Text> : null}
-              {stop.description ? <Text style={styles.stopDesc} numberOfLines={2}>{stop.description}</Text> : null}
-              {stop.google_maps_url ? (
-                <TouchableOpacity style={styles.mapLink} onPress={() => Linking.openURL(stop.google_maps_url!)}>
-                  <Text style={styles.mapLinkText}>Open in Maps 🗺️</Text>
-                </TouchableOpacity>
-              ) : null}
+          <TouchableOpacity onPress={() => onStopPress(stop)}>
+            <View style={styles.stopRow}>
+              <View style={styles.stopBadge}><Text style={styles.stopBadgeText}>{stop.order ?? i + 1}</Text></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.stopName}>{stop.name}</Text>
+                <View style={{ flexDirection: 'row', gap: Spacing.xs, flexWrap: 'wrap' }}>
+                  {stop.arrival_time ? <Text style={styles.stopTime}>🕐 {stop.arrival_time}</Text> : null}
+                  {stop.visit_duration_min ? <Text style={styles.stopDur}>⏱️ {stop.visit_duration_min} min</Text> : null}
+                </View>
+                {stop.description ? <Text style={styles.stopDesc} numberOfLines={2}>{stop.description}</Text> : null}
+              </View>
             </View>
-          </View>
+          </TouchableOpacity>
           {stop.travel_to_next && (
             <View style={styles.travelSeg}>
               <View style={styles.travelLine} />
-              <Text style={styles.travelText}>🚶 {stop.travel_to_next.duration_text} · {stop.travel_to_next.distance_text}</Text>
+              <Text style={styles.travelText}>
+                {d.travel_mode === 'driving' ? '🚗' : d.travel_mode === 'transit' ? '🚌' : '🚶'} {stop.travel_to_next.duration_text} · {stop.travel_to_next.distance_text}
+              </Text>
             </View>
           )}
         </View>
@@ -169,6 +183,7 @@ export default function ItineraryScreen() {
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const listRef = useRef<FlatList>(null);
+  const [selectedStop, setSelectedStop] = useState<Stop | null>(null);
 
   const [messages, setMessages] = useState<ThreadItem[]>(() => {
     let initial: ItineraryData | null = null;
@@ -187,7 +202,8 @@ export default function ItineraryScreen() {
   const [pendingBadFeedback, setPendingBadFeedback] = useState<{ messageId: string; aiMessage: string; userMessage?: string } | null>(null);
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
-  const threadId = params.thread_id as string | undefined;
+  const [currentThreadId, setCurrentThreadId] = useState<string | undefined>(params.thread_id as string | undefined);
+  const threadId = currentThreadId;
   const itineraryIdParam = params.id as string | undefined;
   const itineraryDbId = params.itinerary_id as string | undefined;
   const startTimeParam = params.start_time as string | undefined;
@@ -221,6 +237,18 @@ export default function ItineraryScreen() {
         const data = await response.json();
         const itinerary: SavedItineraryApi | undefined = data?.itinerary;
         if (!itinerary) return;
+        // Restore threadId from saved itinerary
+        if ((itinerary as any)?.threadId) setCurrentThreadId((itinerary as any).threadId);
+
+        // Load saved chat history
+        const chatHistory: ThreadItem[] = Array.isArray((itinerary as any)?.chatHistory)
+          ? (itinerary as any).chatHistory.map((m: any, i: number) => ({
+              id: `saved-chat-${i}`,
+              type: "message" as const,
+              role: m.role === "user" ? "user" as const : "ai" as const,
+              text: m.content,
+            }))
+          : [];
 
         let structuredFromNarrative: ItineraryData | null = null;
         if (typeof itinerary.generatedNarrative === 'string') {
@@ -245,7 +273,7 @@ export default function ItineraryScreen() {
               start_time: structuredFromNarrative.start_time ?? startTimeParam,
               end_time: structuredFromNarrative.end_time ?? endTimeParam,
             },
-          }]);
+          }, ...chatHistory]);
           return;
         }
 
@@ -267,7 +295,7 @@ export default function ItineraryScreen() {
 
         if (!isMounted) return;
         if (mapped.stops.length > 0) {
-          setMessages([{ id: 'plan-saved-0', type: 'plan', version: 1, data: mapped }]);
+          setMessages([{ id: 'plan-saved-0', type: 'plan', version: 1, data: mapped }, ...chatHistory]);
         } else {
           setMessages([
             { id: 'plan-saved-0', type: 'plan', version: 1, data: mapped },
@@ -277,7 +305,7 @@ export default function ItineraryScreen() {
               role: 'ai',
               text: 'This saved itinerary has no detailed stops stored yet, but your plan record is loaded successfully.',
             },
-          ]);
+            ...chatHistory]);
         }
       } catch {
         // Keep empty-state fallback
@@ -300,52 +328,45 @@ export default function ItineraryScreen() {
     pushMsg({ id: `user-${Date.now()}`, type: 'message', role: 'user', text });
     setTyping(true);
     listRef.current?.scrollToEnd({ animated: true });
+    let response = "";
 
     try {
+      const latestPlanMsg = [...messages].reverse().find(m => m.type === 'plan') as PlanMessage | undefined;
       const chatRes = await fetch(`${API_BASE_URL}/chat`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, thread_id: threadId || (itineraryIdParam ? `itinerary_${itineraryIdParam}` : undefined) }),
+        body: JSON.stringify({
+          message: text,
+          thread_id: threadId || (itineraryIdParam ? `itinerary_${itineraryIdParam}` : undefined),
+          history: messages.filter(m => m.type === "message").map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.text })),
+          context: "itinerary_chat",
+          current_itinerary: latestPlanMsg?.data ?? null,
+        }),
       });
       if (!chatRes.ok) throw new Error(`Chat failed (${chatRes.status})`);
 
       const chatData = await chatRes.json();
-      const response: string = chatData.response || '';
+      response = chatData.response || '';
+      if (chatData.thread_id) setCurrentThreadId(chatData.thread_id);
 
-      // Try to extract a structured itinerary; if successful → plan card; otherwise → chat bubble
-      try {
-        const extractRes = await fetch(`${API_BASE_URL}/extract`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ response_text: response, travel_mode: 'walking' }),
-        });
 
-        if (extractRes.ok) {
-          const extractData = await extractRes.json();
-          const structured: ItineraryData | null =
-            (extractData?.structured_itinerary && Array.isArray(extractData.structured_itinerary.stops))
-              ? extractData.structured_itinerary
-              : (Array.isArray(extractData?.stops) ? extractData : null);
-
-          if (structured?.stops?.length) {
-            const latestPlan = [...messages].reverse().find(m => m.type === 'plan') as (PlanMessage & { id: string }) | undefined;
-            const inferredWindow = extractTimeWindowFromText(response);
-
-            const nextPlan: ItineraryData = {
-              ...structured,
-              start_time: structured.start_time ?? inferredWindow?.start_time ?? latestPlan?.data.start_time ?? startTimeParam,
-              end_time: structured.end_time ?? inferredWindow?.end_time ?? latestPlan?.data.end_time ?? endTimeParam,
-            };
-
-            pushMsg({ id: `plan-${Date.now()}`, type: 'plan', version: versionCount + 1, data: nextPlan });
-          } else {
-            pushMsg({ id: `ai-${Date.now()}`, type: 'message', role: 'ai', text: response });
-          }
-
-        } else {
-          pushMsg({ id: `ai-${Date.now()}`, type: 'message', role: 'ai', text: response });
-        }
-      } catch {
+      // Check if backend returned structured itinerary (from format_itinerary tool or fallback)
+      const structured = chatData.structured_itinerary;
+      if (structured?.stops?.length) {
+        const latestPlan = [...messages].reverse().find(m => m.type === 'plan') as (PlanMessage & { id: string }) | undefined;
+        const inferredWindow = extractTimeWindowFromText(response);
+        const nextPlan: ItineraryData = {
+          ...structured,
+          start_time: structured.start_time ?? inferredWindow?.start_time ?? latestPlan?.data.start_time ?? startTimeParam,
+          end_time: structured.end_time ?? inferredWindow?.end_time ?? latestPlan?.data.end_time ?? endTimeParam,
+          travel_mode: structured.travel_mode ?? latestPlan?.data.travel_mode,
+        };
+        pushMsg({ id: `plan-${Date.now()}`, type: 'plan', version: versionCount + 1, data: nextPlan });
+      } else {
         pushMsg({ id: `ai-${Date.now()}`, type: 'message', role: 'ai', text: response });
       }
+      // Save chat to DB
+      const dbId = itineraryDbId || itineraryIdParam;
+      if (dbId && response) saveChatMessages(dbId, [{role: "user", content: text}, {role: "assistant", content: response}]).catch(() => {});
     } catch {
       pushMsg({ id: `err-${Date.now()}`, type: 'message', role: 'ai', text: 'Sorry, something went wrong. Please try again.' });
     } finally {
@@ -435,7 +456,7 @@ export default function ItineraryScreen() {
 
   const renderItem = ({ item, index }: { item: ThreadItem; index: number }) => {
     if (item.type === 'plan') {
-      return <PlanCard item={item as PlanMessage & { id: string }} onRate={handleRate} />;
+      return <PlanCard item={item as PlanMessage & { id: string }} onRate={handleRate} onStopPress={setSelectedStop} />;
     }
     const isUser = item.role === 'user';
 
@@ -449,7 +470,11 @@ export default function ItineraryScreen() {
     return (
       <View style={{ marginBottom: Spacing.sm }}>
         <View style={[styles.bubble, isUser ? styles.userBubble : styles.aiBubble]}>
-          <Text style={[styles.bubbleText, isUser && { color: Colors.white }]}>{item.text}</Text>
+          {isUser ? (
+            <Text style={[styles.bubbleText, { color: Colors.white }]}>{item.text}</Text>
+          ) : (
+            <MarkdownText style={styles.bubbleText}>{item.text}</MarkdownText>
+          )}
         </View>
         {!isUser && (
           <View style={styles.feedbackRow}>
@@ -529,7 +554,7 @@ export default function ItineraryScreen() {
       {/* Typing indicator */}
       {typing && (
         <View style={[styles.aiBubble, { marginHorizontal: Spacing.md, marginBottom: Spacing.xs }]}>
-          <Text style={styles.bubbleText}>✨ Updating your plan...</Text>
+          <Text style={styles.bubbleText}>✨ Thinking...</Text>
         </View>
       )}
 
@@ -581,6 +606,83 @@ export default function ItineraryScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Stop Detail Modal */}
+      <Modal visible={!!selectedStop} transparent animationType="slide" onRequestClose={() => setSelectedStop(null)}>
+        <View style={styles.stopModalOverlay}>
+          <View style={styles.stopModalContent}>
+            <View style={styles.stopModalHeader}>
+              <Text style={styles.stopModalTitle}>{selectedStop?.name}</Text>
+              <TouchableOpacity onPress={() => setSelectedStop(null)}>
+                <Text style={styles.stopModalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
+              {selectedStop?.photo_url ? (
+                <Image 
+                  source={{ uri: selectedStop.photo_url }} 
+                  style={styles.stopModalPhoto}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={[styles.stopModalPhoto, { backgroundColor: Colors.border, justifyContent: 'center', alignItems: 'center' }]}>
+                  <Text style={{ color: Colors.textMuted, fontSize: scale(14) }}>📷 No photo available</Text>
+                </View>
+              )}
+              
+              <View style={styles.stopModalBody}>
+                {/* Rating and opening hours */}
+                <View style={{ flexDirection: 'row', gap: Spacing.md, marginBottom: Spacing.sm, flexWrap: 'wrap' }}>
+                  {selectedStop?.rating ? (
+                    <Text style={styles.stopModalMeta}>⭐ {selectedStop.rating.toFixed(1)}</Text>
+                  ) : null}
+                  {selectedStop?.opening_hours ? (
+                    <Text style={[styles.stopModalMeta, { color: selectedStop.opening_hours.includes('Open') || selectedStop.opening_hours.includes('open') ? '#10b981' : '#ef4444', flex: 1 }]}>
+                      {selectedStop.opening_hours}
+                    </Text>
+                  ) : null}
+                </View>
+                
+                {/* Address */}
+                {selectedStop?.address ? (
+                  <Text style={styles.stopModalAddress}>📍 {selectedStop.address}</Text>
+                ) : null}
+                
+                {/* Visit duration */}
+                {selectedStop?.visit_duration_min ? (
+                  <Text style={styles.stopModalDuration}>⏱️ {selectedStop.visit_duration_min} min visit</Text>
+                ) : null}
+                
+                {/* Description */}
+                {selectedStop?.description ? (
+                  <Text style={styles.stopModalDesc}>{selectedStop.description}</Text>
+                ) : null}
+                
+                {/* Phone */}
+                {selectedStop?.phone ? (
+                  <TouchableOpacity onPress={() => Linking.openURL(`tel:${selectedStop.phone}`)}>
+                    <Text style={styles.stopModalPhone}>📞 {selectedStop.phone}</Text>
+                  </TouchableOpacity>
+                ) : null}
+                
+                {/* Map button */}
+                {selectedStop?.google_maps_url ? (
+                  <TouchableOpacity 
+                  style={styles.stopModalMapBtn} 
+                  onPress={() => {
+                    Linking.openURL(selectedStop.google_maps_url!);
+                    setSelectedStop(null);
+                  }}
+                >
+                  <Text style={styles.stopModalMapBtnText}>🗺️ Open in Google Maps</Text>
+                </TouchableOpacity>
+              ) : null}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -613,10 +715,13 @@ const styles = StyleSheet.create({
   stopRow: { flexDirection: 'row', padding: Spacing.sm, gap: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.border },
   stopBadge: { width: scale(24), height: scale(24), borderRadius: scale(12), backgroundColor: '#7c3aed', justifyContent: 'center', alignItems: 'center', flexShrink: 0, marginTop: scale(2) },
   stopBadgeText: { color: Colors.white, fontWeight: '800', fontSize: scale(11) },
+  stopPhoto: { width: '100%', height: scale(180), borderRadius: Radius.md, marginTop: scale(8), marginBottom: scale(8) },
   stopName: { fontSize: scale(13), fontWeight: '700', color: Colors.textPrimary },
   stopDur: { fontSize: scale(11), color: Colors.textMuted, marginTop: scale(1) },
+  stopTime: { fontSize: scale(11), color: Colors.accent, fontWeight: '600', marginTop: scale(1) },
   stopShort: { fontSize: scale(11), color: '#7c3aed', marginTop: scale(2), fontWeight: '500' },
   stopDesc: { fontSize: scale(11), color: Colors.textSecondary, lineHeight: scale(16), marginTop: scale(2) },
+  stopDescFull: { fontSize: scale(12), color: Colors.textSecondary, lineHeight: scale(18), marginTop: scale(4), marginBottom: scale(4) },
   mapLink: { marginTop: scale(6), backgroundColor: '#EFF6FF', paddingVertical: scale(6), borderRadius: Radius.sm, alignItems: 'center' },
   mapLinkText: { color: '#2563EB', fontWeight: '600', fontSize: scale(10) },
   travelSeg: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingLeft: scale(40), paddingVertical: scale(4), borderTopWidth: 1, borderTopColor: Colors.border },
@@ -655,4 +760,20 @@ const styles = StyleSheet.create({
   inputField: { flex: 1, backgroundColor: Colors.inputBg, borderRadius: Radius.full, paddingHorizontal: Spacing.md, paddingVertical: scale(8), fontSize: scale(13), color: Colors.textPrimary },
   sendBtn: { width: scale(36), height: scale(36), borderRadius: scale(18), backgroundColor: '#7c3aed', justifyContent: 'center', alignItems: 'center' },
   sendText: { color: Colors.white, fontSize: scale(16), fontWeight: '700' },
+
+  // Stop detail modal
+  stopModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  stopModalContent: { backgroundColor: Colors.white, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, maxHeight: '85%', overflow: 'hidden' },
+  stopModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.lg, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  stopModalTitle: { fontSize: scale(18), fontWeight: '800', color: Colors.textPrimary, flex: 1 },
+  stopModalClose: { fontSize: scale(24), color: Colors.textMuted, fontWeight: '300' },
+  stopModalPhoto: { width: '100%', height: scale(220) },
+  stopModalBody: { padding: Spacing.lg },
+  stopModalDuration: { fontSize: scale(13), color: Colors.textMuted, fontWeight: '600', marginBottom: Spacing.sm },
+  stopModalMeta: { fontSize: scale(13), color: Colors.textMuted, fontWeight: '600' },
+  stopModalAddress: { fontSize: scale(12), color: Colors.textSecondary, marginBottom: Spacing.sm },
+  stopModalDesc: { fontSize: scale(14), color: Colors.textPrimary, lineHeight: scale(22), marginBottom: Spacing.lg },
+  stopModalPhone: { fontSize: scale(13), color: Colors.accent, fontWeight: '600', marginBottom: Spacing.md },
+  stopModalMapBtn: { backgroundColor: Colors.accent, borderRadius: Radius.lg, padding: Spacing.md, alignItems: 'center' },
+  stopModalMapBtnText: { color: Colors.white, fontSize: scale(15), fontWeight: '700' },
 });

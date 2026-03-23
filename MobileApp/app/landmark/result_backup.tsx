@@ -3,9 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, FlatLi
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Radius, Spacing, scale } from '@/constants/theme';
-import { API_BASE_URL, saveScanResult, getToken } from '@/api/client';
-import { streamChat } from '@/api/streaming';
-import { MarkdownText } from '@/components/MarkdownText';
+import { API_BASE_URL, saveScanResult, chatWithAgent, getToken } from '@/api/client';
 
 type TabType = 'result' | 'details' | 'chat';
 interface ChatMsg { role: 'user' | 'assistant'; content: string; }
@@ -185,48 +183,26 @@ export default function LandmarkResultScreen() {
   }
 
   // ── Agent chat ───────────────────────────────────────────
-const handleChat = async () => {
-  if (!chatInput.trim()) return;
-  const userMsg = chatInput.trim();
-  setChatInput('');
-  setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
-  setChatLoading(true);
-  
-  const aiMsgIndex = chatMessages.length + 1;
-  setChatMessages(prev => [...prev, { role: 'assistant', content: '' }]);
-  
-  try {
-    const contextMsg = spotId
-      ? `[Landmark context: ${landmarkName}] ${userMsg}`
-      : userMsg;
-    const stream = streamChat(
-      contextMsg,
-      threadId ?? `landmark_${(spotId || landmarkName).replace(/\s+/g, '_')}`,
-      spotId,
-      "landmark_chat"
-    );
-    let fullResponse = '';
-    
-    for await (const update of stream) {
-      if (update.type === 'chunk') {
-        fullResponse += update.content;
-        setChatMessages(prev => {
-          const newMsgs = [...prev];
-          newMsgs[aiMsgIndex] = { role: 'assistant', content: fullResponse };
-          return newMsgs;
-        });
-      } else if (update.type === 'complete') {
-        setThreadId(update.data?.thread_id);
-      }
-    }
-  } catch {
-    setChatMessages(prev => {
-      const newMsgs = [...prev];
-      newMsgs[aiMsgIndex] = { role: 'assistant', content: 'Connection error. Please try again.' };
-      return newMsgs;
-    });
-  } finally { setChatLoading(false); }
-};
+  const handleChat = async () => {
+    if (!chatInput.trim()) return;
+    const userMsg = chatInput.trim();
+    setChatInput('');
+    setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    setChatLoading(true);
+    try {
+      const contextMsg = spotId
+        ? `[Landmark context: ${landmarkName}] ${userMsg}`
+        : userMsg;
+      const data = await chatWithAgent({
+        message: contextMsg,
+        thread_id: threadId ?? `landmark_${(spotId || landmarkName).replace(/\s+/g, '_')}`,
+      });
+      setThreadId(data.thread_id);
+      setChatMessages(prev => [...prev, { role: 'assistant', content: data.response || 'Sorry, I could not answer that.' }]);
+    } catch {
+      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Connection error. Please try again.' }]);
+    } finally { setChatLoading(false); }
+  };
 
   const overviewText = spotContent?.overview
     || scanData?.description
@@ -375,11 +351,7 @@ const handleChat = async () => {
               return (
                 <View style={{ marginBottom: Spacing.sm }}>
                   <View style={[styles.bubble, isUser ? styles.userBubble : styles.aiBubble]}>
-                    {isUser ? (
-                      <Text style={[styles.bubbleText, { color: Colors.white }]}>{item.content}</Text>
-                    ) : (
-                      <MarkdownText style={styles.bubbleText}>{item.content}</MarkdownText>
-                    )}
+                    <Text style={[styles.bubbleText, isUser && { color: Colors.white }]}>{item.content}</Text>
                   </View>
                   {!isUser && (
                     <View style={styles.feedbackRow}>

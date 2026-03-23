@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # YOLO11 Fine-tuned model
-FINETUNED_MODEL_PATH = r"models\results\partial_finetuning\weights\best.pt"
+FINETUNED_MODEL_PATH = "models/results/partial_finetuning/weights/best.pt"
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # DINOv2 for coarse identification (lazy loaded)

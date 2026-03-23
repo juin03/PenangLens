@@ -160,7 +160,7 @@ export async function resetPassword(token: string, password: string): Promise<vo
 // ──────────────────────────────── Itinerary API ────────────────────────
 
 export async function saveItinerary(data: {
-  name: string; originalPrompt?: string; generatedNarrative?: string; totalDuration?: number;
+  name: string; originalPrompt?: string; generatedNarrative?: string; totalDuration?: number; threadId?: string;
 }) {
   const headers = await authHeaders();
   const res = await fetch(`${DATA_URL}/itineraries`, {
@@ -193,6 +193,15 @@ export async function deleteItinerary(id: string) {
   return res.json();
 }
 
+
+export async function saveChatMessages(itineraryId: string, messages: { role: string; content: string }[]) {
+  const headers = await authHeaders();
+  const res = await fetch(`${DATA_URL}/itineraries/${itineraryId}/chat`, {
+    method: 'POST', headers, body: JSON.stringify({ messages }),
+  });
+  if (!res.ok) throw new Error('Failed to save chat');
+  return res.json();
+}
 // ──────────────────────────────── Scan History API ────────────────────
 
 export async function saveScanResult(data: {
@@ -236,16 +245,6 @@ export const chatWithAgent = async (request: ChatRequest) => {
     body: JSON.stringify(request),
   });
   if (!res.ok) throw new Error(`Chat failed (${res.status})`);
-  return res.json();
-};
-
-export const extractItinerary = async (responseText: string, travelMode: string = 'walking') => {
-  const res = await fetch(`${API_BASE_URL}/extract`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ response_text: responseText, travel_mode: travelMode }),
-  });
-  if (!res.ok) throw new Error(`Extract failed (${res.status})`);
   return res.json();
 };
 

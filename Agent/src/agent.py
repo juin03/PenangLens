@@ -16,10 +16,11 @@ import os
 import uuid
 import json
 import logging
+from pydantic import BaseModel, Field as PydanticField
+from typing import Annotated, TypedDict, Literal, Optional
 from dotenv import load_dotenv
 
 from .token_tracker import TokenTracker
-from typing import Annotated, TypedDict, Literal
 
 from langchain_core.messages import (
     BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
@@ -40,6 +41,7 @@ from .tools import (
     search_nearby_places,
     search_restaurants,
     get_place_details,
+    clear_search_cache,
 )
 from .guardrails import sanitize_input, check_penang_scope
 from .logging_config import get_logger
@@ -74,6 +76,9 @@ class AgentState(TypedDict):
     user_preferences_text: str
     is_blocked: bool
     block_reason: str
+    chat_context: str
+    current_datetime: str
+    current_itinerary: Optional[dict]
 
 
 # =============================================================================
@@ -81,9 +86,9 @@ class AgentState(TypedDict):
 # =============================================================================
 
 @tool
-def search_places_tool(category: str) -> str:
-    """Search for places in Penang by category (e.g., history, heritage, food, outdoor, nature, art, culture, beach, adventure, scenic, photography, religious, shopping)."""
-    return search_places(category)
+def search_places_tool(category: str, travel_mode: str = "walking") -> str:
+    """Search for places in Penang by category. travel_mode affects search radius: walking=2.5km (George Town only), driving=15km (full island). Categories: history, heritage, food, outdoor, nature, art, culture, beach, adventure, scenic, photography, religious, shopping."""
+    return search_places(category, travel_mode=travel_mode)
 
 
 @tool
@@ -180,15 +185,16 @@ def optimize_route_tool(locations: str) -> str:
 
 
 @tool
-def create_route_visualization_tool(locations: str) -> str:
+def create_route_visualization_tool(locations: str, travel_mode: str = "walking") -> str:
     """
     Create a Google Maps route visualization URL for an itinerary.
 
     Args:
         locations: Comma-separated list of location names in visit order
+        travel_mode: 'walking', 'driving', or 'transit'
 
     Returns:
-        A Google Maps URL showing the walking route through all locations
+        A Google Maps URL showing the route through all locations
     """
     from .tools import create_route_url
 
@@ -199,17 +205,87 @@ def create_route_visualization_tool(locations: str) -> str:
     else:
         return "Could not create route visualization (invalid input format)"
 
-    url = create_route_url(location_list)
+    url = create_route_url(location_list, travel_mode=travel_mode)
 
     if url:
         return (
             f"Route visualization: {url}\n\n"
-            f"This link opens Google Maps showing the complete walking route "
+            f"This link opens Google Maps showing the complete {travel_mode} route "
             f"through all stops in order."
         )
     else:
         return "Could not create route visualization (need at least 2 locations)"
 
+
+# Pydantic schema for format_itinerary tool input
+class ItineraryStopInput(BaseModel):
+    name: str
+    short_description: str = ""
+    description: str = ""
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    visit_duration_min: int = 30
+    google_maps_url: Optional[str] = None
+    photo_url: Optional[str] = None
+    rating: Optional[float] = None
+    address: Optional[str] = None
+    opening_hours: Optional[str] = None
+    arrival_time: Optional[str] = None
+    departure_time: Optional[str] = None
+    travel_to_next: Optional[dict] = None
+    tips: Optional[str] = None
+
+class FormatItineraryInput(BaseModel):
+    stops: list[ItineraryStopInput]
+    total_duration_min: int
+    summary: str
+    route_url: Optional[str] = None
+
+@tool(args_schema=FormatItineraryInput)
+def format_itinerary_tool(
+    stops: list,
+    total_duration_min: int,
+    summary: str,
+    route_url: str = None,
+) -> str:
+    """Format and present an itinerary to the user. You MUST call this tool whenever
+    you create, modify, or present any itinerary. Never write itineraries as plain text.
+    Each stop needs: name, description, visit_duration_min. Include lat/lng if known."""
+    from .tools import _find_place_id, _get_place_details_by_id
+    import os
+
+    api_key = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
+
+    enriched_stops = []
+    for i, s in enumerate(stops):
+        stop = s if isinstance(s, dict) else s.dict()
+        # Get coords from Google if missing
+        if api_key and (not stop.get("lat") or not stop.get("lng")):
+            try:
+                place_id = _find_place_id(stop.get("name", ""), api_key)
+                if place_id:
+                    details = _get_place_details_by_id(place_id, api_key)
+                    geo = details.get("geometry", {}).get("location", {})
+                    if geo.get("lat"):
+                        stop["lat"] = geo["lat"]
+                        stop["lng"] = geo["lng"]
+                    if not stop.get("google_maps_url"):
+                        stop["google_maps_url"] = f"https://www.google.com/maps/search/?api=1&query=&query_place_id={place_id}"
+            except Exception:
+                pass
+        stop["order"] = i + 1
+        # Ensure all optional fields are preserved
+        for field in ["photo_url", "rating", "address", "opening_hours", "arrival_time", "departure_time"]:
+            if field not in stop:
+                stop[field] = None
+        enriched_stops.append(stop)
+
+    return json.dumps({
+        "stops": enriched_stops,
+        "total_duration_min": total_duration_min,
+        "summary": summary,
+        "route_url": route_url,
+    })
 
 # List of tools available to the agent
 tools = [
@@ -222,6 +298,7 @@ tools = [
     get_place_details_tool,
     optimize_route_tool,
     create_route_visualization_tool,
+    format_itinerary_tool,
 ]
 
 
@@ -229,9 +306,10 @@ tools = [
 # System Prompt Builder
 # =============================================================================
 
-def build_system_prompt(user_preferences_text: str = "") -> str:
+def build_system_prompt(user_preferences_text: str = "", chat_context: str = "", current_datetime: str = "", current_itinerary: dict = None) -> str:
     """Build the system prompt, optionally injecting user preferences."""
 
+    datetime_section = f"\n\nCurrent date and time: {current_datetime}" if current_datetime else ""
     preferences_section = ""
     if user_preferences_text:
         preferences_section = f"""
@@ -247,30 +325,54 @@ places, restaurants, and building itineraries:
 Always acknowledge these preferences in your response when relevant.
 """
 
-    return f"""You are a helpful AI travel assistant exclusively for Penang, Malaysia.
+    itinerary_section = ""
+    if current_itinerary and current_itinerary.get("stops"):
+        import json as _json
+        itinerary_section = f"""
+
+====================
+CURRENT ITINERARY (structured JSON — use this as the source of truth)
+====================
+{_json.dumps(current_itinerary, indent=2)}
+
+When the user asks to modify this itinerary (remove/add/swap a stop, change times, etc.),
+operate on the JSON above. Always call format_itinerary_tool with the updated stops.
+IMPORTANT: When modifying, preserve photo_url, rating, address, and other metadata from the original stops.
+
+Modification rules:
+- "add X at the last stop" or "add X after the last stop" → append X as a NEW stop AFTER the current last stop
+- "add X before stop N" → insert X before stop N
+- "remove stop N" → remove that stop, re-number remaining stops
+- "replace stop N with X" → swap that stop out
+- Always re-number stops sequentially (1, 2, 3...) after any modification
+- Always call format_itinerary_tool — NEVER respond with plain text for itinerary changes
+"""
+
+    prompt = f"""You are a helpful AI travel assistant exclusively for Penang, Malaysia.
 Your job is to help users plan their travel itineraries based on their requests.
 You ONLY provide information and planning for Penang — if asked about other destinations,
 politely redirect to Penang.
-{preferences_section}
+{datetime_section}{preferences_section}{itinerary_section}
 Available Tools:
-1. **search_places_tool**: Find curated landmarks from our database by category (history, heritage, food, outdoor, art, etc.)
-2. **search_nearby_places_tool**: Find ANY places near a location using Google Places (restaurants, cafes, museums, etc.)
-3. **search_restaurants_tool**: Specifically search for restaurants, optionally filtered by cuisine (Malay, Chinese, Indian, seafood, etc.)
-4. **get_travel_time_tool**: Calculate realistic travel times between locations
-5. **check_opening_hours_tool**: Verify if curated landmarks are open at specific times
-6. **get_place_details_tool**: Get detailed info about a specific place (address, rating, phone, website)
+1. **search_places_tool**: Search Penang places by category. Pass travel_mode so radius is correct: walking=2.5km (George Town core only), driving=15km (full island). Categories: history, heritage, art, outdoor, culture, food, nature, beach, adventure, scenic, religious, shopping
+2. **search_nearby_places_tool**: Find ANY places near a specific location using Google Places (restaurants, cafes, museums, etc.)
+3. **search_restaurants_tool**: Search for restaurants near a location, optionally filtered by cuisine (Malay, Chinese, Indian, seafood, etc.)
+4. **get_travel_time_tool**: Calculate realistic travel times between locations using Google Distance Matrix
+5. **check_opening_hours_tool**: Check if a place is open at a specific time using LIVE Google data (includes public holidays and special closures)
+6. **get_place_details_tool**: Get full details about a place — live opening hours, ratings, contact info, visit duration estimate, and local editorial content
 7. **check_weather_tool**: Check current weather conditions
-8. **optimize_route_tool**: **USE THIS to find the most efficient walking route through multiple locations**
-9. **create_route_visualization_tool**: Generate a Google Maps URL showing the complete walking route through all stops
+8. **optimize_route_tool**: Find the most efficient walking route through multiple locations
+9. **create_route_visualization_tool**: Generate a Google Maps URL showing the complete walking route
 
 When to Use Each Tool:
-- For curated tourist attractions → use search_places_tool with categories: history, heritage, art, outdoor, culture, food, nature, beach
-- For "nearby" or "restaurants" queries → use search_nearby_places_tool or search_restaurants_tool
-- For cuisine-specific requests ("Malay food", "Chinese restaurant") → use search_restaurants_tool with cuisine parameter
-- For general nearby search ("cafes nearby", "museums nearby") → use search_nearby_places_tool
-- **For murals, street art, or wall art** → use search_nearby_places_tool with place_type="tourist_attraction" and keyword="street art" OR use search_places_tool with category="art"
-- **For itineraries with 3+ stops** → **MANDATORY**: use optimize_route_tool to find the best order
-- **For itineraries with 2+ stops** → ALWAYS use create_route_visualization_tool at the end to generate a complete route map
+- For itinerary planning by category → use search_places_tool (returns live Google data + editorial enrichment)
+- For "nearby" queries or specific location searches → use search_nearby_places_tool
+- For cuisine-specific restaurant searches → use search_restaurants_tool with cuisine parameter
+- For murals, street art → use search_places_tool with category="art" OR search_nearby_places_tool with keyword="street art"
+- **For itineraries with 3+ stops** → **MANDATORY**: use optimize_route_tool
+- **For itineraries with 2+ stops** → ALWAYS use create_route_visualization_tool at the end
+- For checking if a place is open → use check_opening_hours_tool (uses live Google hours, not static data)
+- For full place info before including in itinerary → use get_place_details_tool
 
 ====================
 CRITICAL: ITINERARY PLANNING METHODOLOGY
@@ -284,20 +386,39 @@ When user requests an itinerary (e.g., "2 hour mural tour", "3 hour heritage wal
 - Plan flexibly based on actual attraction durations, not arbitrary stop counts
 
 **STEP 2: Search for Places**
-- Use appropriate tool to find ALL relevant places
-- For murals: Get street art locations with specific names
-- For heritage: Get multiple historical sites
-- You will receive a list with visit durations and details
+- Use search_places_tool with the user's travel_mode (from preferences) so the radius is correct
+- walking → 2.5km radius (George Town core), driving/transit → full island
+- Search each relevant category separately
 
-**STEP 3: Select Stops Based on Time**
-- Review each location's average visit duration
+**STEP 3: Select Stops Based on Time & Logic**
+- The tool data provides an "Estimated visit duration" for each place — treat this as a starting point, NOT a fixed number
+- You MUST reason about duration from the place's description, type, and editorial summary:
+  • A "hilltop temple complex" with cable car (Kek Lok Si) → 90-120 min minimum
+  • A "hill with tram, views, hikes, shops & eateries" (Penang Hill) → 120 min minimum
+  • A "large fort with multiple buildings, cafe, guided tours" → 60 min
+  • A "small shrine" or single-room temple → 20-30 min
+  • A "hawker centre" or sit-down restaurant → 45-60 min
+  • A "street food stall" (single dish) → 15-20 min
+  • A "theme park" or "nature park with trails" → 2-4 hours
+  • A "museum" with multiple galleries → 60-90 min
+  • A "clan jetty" or heritage street → 30-45 min
+  • A "street art cluster" → 30-45 min per area
+- Use the editorial_summary from the tool to understand the scale and complexity of the place
+- A place with 10,000+ reviews is likely large and popular — allocate more time
+- NEVER allocate less than what the place's description implies
 - Calculate if combinations fit within time budget
-- Consider variety and user preferences
 - Example logic:
   • 2 hours available
   • Fort (60 min) + Restaurant (60 min) + Travel (15 min) = 135 min ❌ Too much
   • Fort (60 min) + Jetty (45 min) + Travel (10 min) = 115 min ✅ Fits!
-- Choose locations that maximize experience within time constraint
+
+**STEP 3b: Ensure Logical Variety**
+- NEVER place two food/restaurant stops consecutively — always separate with at least one activity
+- Pattern for full day: Activity → Food → Activity → Activity → Food → Activity
+- For a 2-hour tour: at most 1 food stop
+- Food tour exception: if user explicitly requests food tour, food stops are allowed consecutively
+- Consider time of day: breakfast spots before 10am, lunch 12-1pm, dinner after 6pm
+- Group geographically close stops together to minimize travel
 
 **STEP 4: Optimize Route Order**
 - **MANDATORY for 3+ stops**: Use optimize_route_tool with selected locations
@@ -307,14 +428,15 @@ When user requests an itinerary (e.g., "2 hour mural tour", "3 hour heritage wal
 
 **STEP 5: Calculate Travel Times**
 - **MANDATORY**: Use get_travel_time_tool between EACH consecutive stop in the OPTIMIZED order
-- Example: Optimized Stop 1 → Stop 2, then Stop 2 → Stop 3, etc.
+- Use the user's travel_mode (walking/driving/transit) — NEVER guess travel times
+- Walking 1km in George Town ≈ 12-15 min (heritage streets are narrow and busy)
 
 **STEP 6: Create Sequential Itinerary**
 - Present stops in the OPTIMIZED order from Step 4
 - For each stop include:
   • Stop number and name
   • SPECIFIC details (e.g., "Kids on Bicycle mural" not just "street art")
-  • Visit duration (from location data)
+  • Visit duration (your reasoned estimate based on place description and scale — explain briefly why, e.g. '90 min — large hilltop complex with multiple pagodas')
   • Why it's significant/what to see
   • Google Maps link
   • Travel time to NEXT stop (with distance)
@@ -328,8 +450,8 @@ When user requests an itinerary (e.g., "2 hour mural tour", "3 hour heritage wal
 - Sum: (all visit times) + (all travel times)
 - Must be ≤ requested duration
 - If over, intelligently adjust:
-  • Reduce visit time at less important stops, OR
-  • Remove the least essential stop
+  • Remove the least essential stop (PREFERRED)
+  • As a last resort, reduce visit time — but NEVER below the tool's avg_duration_min
 - Show final total in response
 
 ====================
@@ -365,6 +487,16 @@ If the itinerary exceeds the time limit, remove stops to fit within the constrai
 If a location is closed at the requested time, suggest an alternative time or location.
 
 ====================
+CRITICAL: ITINERARY OUTPUT RULE
+====================
+When you create, modify, or present ANY itinerary, you MUST call the format_itinerary_tool
+with the structured stops data. NEVER write an itinerary as plain text — the mobile app
+needs structured data to render itinerary cards.
+
+For simple Q&A (e.g., "what is nasi kandar?", "tell me about stop 2", "thanks"), respond
+normally in text WITHOUT calling format_itinerary_tool.
+
+====================
 MULTI-TURN CONVERSATION SUPPORT
 ====================
 You maintain context across messages. When a user asks to:
@@ -375,6 +507,21 @@ You maintain context across messages. When a user asks to:
 
 Always refer to the previous itinerary when modifying, don't start from scratch.
 """
+
+    # Append context-specific instructions
+    if chat_context == "landmark_chat":
+        prompt += (
+            "\n\nCONTEXT: You are chatting about a SPECIFIC LANDMARK the user is viewing. "
+            "Focus on answering questions about this place. If the user asks to plan an itinerary "
+            "or tour, tell them: \"To plan an itinerary, head over to the Plan tab! "
+            "I'm here to help you learn about this landmark.\""
+        )
+    elif chat_context == "itinerary_chat":
+        prompt += (
+            "\n\nCONTEXT: You are helping the user with their ITINERARY. "
+            "Use format_itinerary_tool for any itinerary creation or modification."
+        )
+    return prompt
 
 
 # =============================================================================
@@ -502,7 +649,10 @@ def create_graph():
 
         # Build system prompt with preferences
         prefs_text = state.get("user_preferences_text", "")
-        system_prompt = build_system_prompt(prefs_text)
+        chat_ctx = state.get("chat_context", "")
+        current_dt = state.get("current_datetime", "")
+        current_itin = state.get("current_itinerary", None)
+        system_prompt = build_system_prompt(prefs_text, chat_ctx, current_dt, current_itin)
 
         # Prepend system message
         full_messages = [SystemMessage(content=system_prompt)] + list(messages)
@@ -610,35 +760,25 @@ def create_graph():
                     "correction_count": correction_count + 1,
                 }
 
-        # Check itinerary responses for quality
-        # Only flag as itinerary if it has MULTIPLE numbered stops (a new/full itinerary)
-        content_lower = content.lower()
-        stop_count = sum(1 for kw in ["stop 1", "stop 2", "stop 3", "stop 4", "stop 5"]
-                        if kw in content_lower)
-        is_itinerary = stop_count >= 2
-
-        if is_itinerary:
-            issues = []
-
-            # Check for route visualization
-            if "google.com/maps/dir" not in content and "route" not in content.lower():
-                issues.append("Missing route visualization URL. Use create_route_visualization_tool.")
-
-            # Check for total time calculation
-            if "total" not in content.lower() and "min" not in content.lower():
-                issues.append("Missing total time calculation. Sum all visit + travel times.")
-
-            if issues and correction_count < MAX_CORRECTIONS:
-                logger.info(f"Validation: itinerary issues found, requesting correction (attempt {correction_count + 1})")
-                correction_msg = HumanMessage(content=(
-                    "[SYSTEM VALIDATION]: Your itinerary response has these issues:\n"
-                    + "\n".join(f"- {issue}" for issue in issues)
-                    + "\nPlease fix these and regenerate the itinerary."
-                ))
-                return {
-                    "messages": [correction_msg],
-                    "correction_count": correction_count + 1,
-                }
+        # Check: if response looks like an itinerary but format_itinerary_tool wasn't called, force it
+        has_itinerary_content = (
+            sum(1 for kw in ["stop 1", "stop 2", "stop 3", "**stop", "1.", "2.", "3.", "visit duration", "travel time", "arrival"]
+                if kw in content.lower()) >= 3
+            and len(content) > 300
+        )
+        tool_was_called = any(
+            isinstance(m, ToolMessage) and m.name == "format_itinerary_tool"
+            for m in messages
+        )
+        if has_itinerary_content and not tool_was_called and correction_count < MAX_CORRECTIONS:
+            logger.info(f"Validation: itinerary in plain text, forcing format_itinerary_tool (attempt {correction_count + 1})")
+            return {
+                "messages": [HumanMessage(content=(
+                    "[SYSTEM VALIDATION]: You wrote an itinerary as plain text. "
+                    "You MUST call format_itinerary_tool with the stops. Do it now."
+                ))],
+                "correction_count": correction_count + 1,
+            }
 
         # Validation passed
         logger.debug("Validation passed")
@@ -753,6 +893,10 @@ def run_agent(
     thread_id: str | None = None,
     user_preferences=None,
     verbose: bool = True,
+    history: list | None = None,
+    context: str | None = None,
+    current_datetime: str | None = None,
+    current_itinerary: dict | None = None,
 ) -> dict:
     """
     Run the agent with a user message (synchronous).
@@ -771,6 +915,9 @@ def run_agent(
     if not thread_id:
         thread_id = str(uuid.uuid4())
 
+    # Clear per-request search cache
+    clear_search_cache()
+
     # Sanitize input
     is_valid, sanitized, error = sanitize_input(user_message)
     if not is_valid:
@@ -788,14 +935,25 @@ def run_agent(
     # Format preferences
     prefs_text = format_user_preferences(user_preferences)
 
-    # Build input state — only send the new message
-    # (checkpointer handles history)
+    # Build message list: prepend history if provided (for context restoration)
+    history_msgs = []
+    if history:
+        history = history[-10:]  # Cap to prevent token overflow
+        for h in history:
+            if h.get("role") == "user":
+                history_msgs.append(HumanMessage(content=h["content"]))
+            elif h.get("role") in ("assistant", "ai"):
+                history_msgs.append(AIMessage(content=h["content"]))
+
     input_state = {
-        "messages": [HumanMessage(content=sanitized)],
+        "messages": history_msgs + [HumanMessage(content=sanitized)],
         "correction_count": 0,
         "user_preferences_text": prefs_text,
         "is_blocked": False,
         "block_reason": "",
+        "chat_context": context or "",
+        "current_datetime": current_datetime or "",
+        "current_itinerary": current_itinerary,
     }
 
     config = {
@@ -853,6 +1011,9 @@ async def run_agent_stream(
     user_message: str,
     thread_id: str | None = None,
     user_preferences=None,
+    context: str | None = None,
+    current_datetime: str | None = None,
+    current_itinerary: dict | None = None,
 ):
     """
     Run the agent with streaming (async generator).
@@ -871,6 +1032,9 @@ async def run_agent_stream(
 
     if not thread_id:
         thread_id = str(uuid.uuid4())
+
+    # Clear per-request search cache
+    clear_search_cache()
 
     # Sanitize
     is_valid, sanitized, error = sanitize_input(user_message)
@@ -902,6 +1066,9 @@ async def run_agent_stream(
         "user_preferences_text": prefs_text,
         "is_blocked": False,
         "block_reason": "",
+        "chat_context": context or "",
+        "current_datetime": current_datetime or "",
+        "current_itinerary": current_itinerary,
     }
 
     config = {

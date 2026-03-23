@@ -133,6 +133,7 @@ model Itinerary {
   originalPrompt     String?  @map("original_prompt") @db.Text
   generatedNarrative String?  @map("generated_narrative") @db.Text
   totalDuration      Int?     @map("total_duration") // minutes
+  threadId           String?  @map("thread_id")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
   userId             String   @map("user_id")

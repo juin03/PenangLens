@@ -7,6 +7,7 @@ import { getItineraries, deleteItinerary, getToken } from '@/api/client';
 
 interface SavedTrip {
   id: string;
+  threadId?: string;
   name: string;
   createdAt: string;
   totalDuration?: number;
@@ -146,7 +147,7 @@ export default function ItinerariesScreen() {
                 )}
                 <TouchableOpacity
                   style={styles.card}
-                  onPress={() => router.push({ pathname: '/itinerary', params: { id: item.id, name: item.name } })}
+                  onPress={() => router.push({ pathname: '/itinerary', params: { id: item.id, name: item.name, ...(item.threadId ? { thread_id: item.threadId } : {}) } })}
                 >
                   <View style={styles.cardTop}>
                     <Text style={styles.cardTitle} numberOfLines={2}>{item.name}</Text>

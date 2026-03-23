@@ -93,6 +93,13 @@ class ItineraryStop(BaseModel):
     lng: Optional[float] = Field(default=None, description="Longitude")
     visit_duration_min: int = Field(description="Recommended visit duration in minutes")
     google_maps_url: Optional[str] = Field(default=None, description="Google Maps link")
+    photo_url: Optional[str] = Field(default=None, description="Photo URL from Google Places")
+    rating: Optional[float] = Field(default=None, description="Google rating (0-5)")
+    arrival_time: Optional[str] = Field(default=None, description="Arrival time at this stop (HH:MM)")
+    departure_time: Optional[str] = Field(default=None, description="Departure time from this stop (HH:MM)")
+    address: Optional[str] = Field(default=None, description="Formatted address")
+    opening_hours: Optional[str] = Field(default=None, description="Opening hours text")
+    phone: Optional[str] = Field(default=None, description="Phone number")
     travel_to_next: Optional[TravelSegment] = Field(
         default=None,
         description="Travel info to the next stop (null for last stop)"
@@ -106,7 +113,13 @@ class ItineraryData(BaseModel):
     total_duration_min: int = Field(default=0, description="Total duration including travel")
     total_walking_distance: Optional[str] = Field(default=None, description="e.g. '2.5 km'")
     route_url: Optional[str] = Field(default=None, description="Google Maps route visualization URL")
+    travel_mode: Optional[str] = Field(default=None, description="walking, transit, or driving")
+    total_travel_time_min: Optional[int] = Field(default=None, description="Total travel time between stops")
     summary: Optional[str] = Field(default=None, description="Brief summary of the itinerary")
+    # Original form context — preserved for modify workflow
+    start_time: Optional[str] = Field(default=None, description="Original start time HH:MM")
+    end_time: Optional[str] = Field(default=None, description="Original end time HH:MM")
+    interests: Optional[list[str]] = Field(default=None, description="Original user interests")
 
 
 # =============================================================================
@@ -129,7 +142,18 @@ class ChatRequest(BaseModel):
         default=None,
         description="User preferences from the main PenangLens app"
     )
-
+    history: Optional[list] = Field(
+        default=None,
+        description="Previous chat history [{role, content}] to restore context"
+    )
+    context: Optional[str] = Field(
+        default=None,
+        description="Chat context: landmark_chat, itinerary_chat, or itinerary_plan"
+    )
+    current_itinerary: Optional[dict] = Field(
+        default=None,
+        description="Current structured itinerary JSON (for itinerary_chat context)"
+    )
 
 class ChatResponse(BaseModel):
     """Chat response to the frontend."""

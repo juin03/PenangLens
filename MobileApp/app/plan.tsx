@@ -3,9 +3,9 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Activi
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Radius, Spacing, scale } from '@/constants/theme';
-import { generateItinerary, saveItinerary } from '@/api/client';
-
-const INTEREST_TAGS = ['Food', 'Art', 'Nature', 'Heritage', 'Nightlife', 'Shopping', 'Culture', 'Beach'];
+import { saveItinerary } from '@/api/client';
+import { streamItinerary } from '@/api/streaming';
+import { INTEREST_TAGS } from '@/constants/taxonomy';
 
 export default function PlanTripScreen() {
   const router = useRouter();
@@ -14,10 +14,9 @@ export default function PlanTripScreen() {
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('17:00');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
   const [travelMode, setTravelMode] = useState<'walking' | 'driving' | 'transit'>('walking');
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState('');
   const [error, setError] = useState('');
 
   const toggleInterest = (tag: string) =>
@@ -25,56 +24,85 @@ export default function PlanTripScreen() {
 
   const handleGenerate = async () => {
     if (!description.trim()) { setError('Please describe what you want to do.'); return; }
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setStatus('');
+    
     try {
-      const result = await generateItinerary({
-        description, interests: selectedInterests,
-        start_time: startTime, end_time: endTime,
-        start_location: 'George Town, Penang', travel_mode: travelMode,
-        ...(startDate ? { start_date: startDate } : {}),
-        ...(endDate ? { end_date: endDate } : {}),
+      const stream = streamItinerary({
+        description,
+        interests: selectedInterests,
+        start_time: startTime,
+        end_time: endTime,
+        start_location: 'George Town, Penang',
+        travel_mode: travelMode,
       });
 
-      let itineraryId: string | undefined;
-      try {
-        const structured = result?.structured_itinerary;
-        const serializedStructured = structured ? JSON.stringify(structured) : undefined;
+      for await (const update of stream) {
+        if (update.type === 'status') {
+          setStatus(update.message || '');
+        } else if (update.type === 'complete') {
+          const result = update.data;
+          
+          // Save to DB
+          let itineraryId: string | undefined;
+          try {
+            const structured = result.structured;
+            const saved = await saveItinerary({
+              name: structured?.summary || 'My Penang Trip',
+              originalPrompt: description,
+              generatedNarrative: JSON.stringify(structured),
+              totalDuration: structured?.total_duration_min,
+              threadId: result.thread_id,
+            });
+            itineraryId = saved?.itinerary?.id;
+          } catch {}
 
-        const saved = await saveItinerary({
-          name: structured?.summary || 'My Penang Trip',
-          originalPrompt: description,
-          generatedNarrative: serializedStructured || result?.response || structured?.summary,
-          totalDuration: structured?.total_duration_min,
-        });
-        itineraryId = saved?.itinerary?.id;
-      } catch {
-        itineraryId = undefined;
+          // Navigate to result
+          router.push({
+            pathname: '/itinerary',
+            params: {
+              data: JSON.stringify(result.structured),
+              thread_id: result.thread_id,
+              start_time: startTime,
+              end_time: endTime,
+              ...(itineraryId ? { itinerary_id: itineraryId } : {}),
+            },
+          });
+          break;
+        } else if (update.type === 'error') {
+          setError(update.message || 'Generation failed');
+          break;
+        }
       }
-
-      router.push({
-        pathname: '/itinerary',
-        params: {
-          data: JSON.stringify(result.structured_itinerary),
-          thread_id: result.thread_id,
-          start_time: startTime,
-          end_time: endTime,
-          ...(itineraryId ? { itinerary_id: itineraryId } : {}),
-        },
-      });
-    } catch { setError('Failed to generate. Ensure Agent is running.'); }
-    finally { setLoading(false); }
+    } catch (err) {
+      setError('Failed to generate. Ensure Agent is running.');
+    } finally {
+      setLoading(false);
+      setStatus('');
+    }
   };
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingBottom: scale(32) + insets.bottom }]} keyboardShouldPersistTaps="handled">
         <Text style={styles.label}>Describe Your Ideal Day</Text>
-        <TextInput style={styles.textArea} placeholder="E.g. I want to explore heritage sites and eat local food..." placeholderTextColor={Colors.textMuted} multiline numberOfLines={3} value={description} onChangeText={setDescription} />
+        <TextInput 
+          style={styles.textArea} 
+          placeholder="E.g. I want to explore heritage sites and eat local food..." 
+          placeholderTextColor={Colors.tabInactive} 
+          multiline 
+          numberOfLines={3} 
+          value={description} 
+          onChangeText={setDescription} 
+        />
 
         <Text style={styles.label}>Interests</Text>
         <View style={styles.chipRow}>
           {INTEREST_TAGS.map(tag => (
-            <TouchableOpacity key={tag} style={[styles.chip, selectedInterests.includes(tag) && styles.chipActive]} onPress={() => toggleInterest(tag)}>
+            <TouchableOpacity 
+              key={tag} 
+              style={[styles.chip, selectedInterests.includes(tag) && styles.chipActive]} 
+              onPress={() => toggleInterest(tag)}
+            >
               <Text style={[styles.chipText, selectedInterests.includes(tag) && styles.chipTextActive]}>{tag}</Text>
             </TouchableOpacity>
           ))}
@@ -83,9 +111,15 @@ export default function PlanTripScreen() {
         <Text style={styles.label}>Travel Mode</Text>
         <View style={styles.modeRow}>
           {(['walking', 'driving', 'transit'] as const).map(mode => (
-            <TouchableOpacity key={mode} style={[styles.modeBtn, travelMode === mode && styles.modeBtnActive]} onPress={() => setTravelMode(mode)}>
+            <TouchableOpacity 
+              key={mode} 
+              style={[styles.modeBtn, travelMode === mode && styles.modeBtnActive]} 
+              onPress={() => setTravelMode(mode)}
+            >
               <Text style={styles.modeIcon}>{mode === 'walking' ? '🚶' : mode === 'driving' ? '🚗' : '🚌'}</Text>
-              <Text style={[styles.modeText, travelMode === mode && styles.modeTextActive]}>{mode.charAt(0).toUpperCase() + mode.slice(1)}</Text>
+              <Text style={[styles.modeText, travelMode === mode && styles.modeTextActive]}>
+                {mode.charAt(0).toUpperCase() + mode.slice(1)}
+              </Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -93,33 +127,46 @@ export default function PlanTripScreen() {
         <View style={styles.timeRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.label}>Start Time</Text>
-            <TextInput style={styles.timeInput} value={startTime} onChangeText={setStartTime} placeholder="09:00" placeholderTextColor={Colors.textMuted} />
+            <TextInput 
+              style={styles.timeInput} 
+              value={startTime} 
+              onChangeText={setStartTime} 
+              placeholder="09:00" 
+              placeholderTextColor={Colors.tabInactive} 
+            />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.label}>End Time</Text>
-            <TextInput style={styles.timeInput} value={endTime} onChangeText={setEndTime} placeholder="17:00" placeholderTextColor={Colors.textMuted} />
+            <TextInput 
+              style={styles.timeInput} 
+              value={endTime} 
+              onChangeText={setEndTime} 
+              placeholder="17:00" 
+              placeholderTextColor={Colors.tabInactive} 
+            />
           </View>
         </View>
 
-        <Text style={styles.label}>Trip Dates <Text style={{ color: Colors.textMuted, fontWeight: '400' }}>(optional — for multi-day plans)</Text></Text>
-        <View style={styles.timeRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Start Date</Text>
-            <TextInput style={styles.timeInput} value={startDate} onChangeText={setStartDate} placeholder="YYYY-MM-DD" placeholderTextColor={Colors.textMuted} />
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        
+        {loading && status ? (
+          <View style={{ padding: scale(16), backgroundColor: Colors.primary + '20', borderRadius: Radius.m, marginBottom: scale(16) }}>
+            <Text style={{ color: Colors.primary, fontSize: scale(14), textAlign: 'center' }}>{status}</Text>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>End Date</Text>
-            <TextInput style={styles.timeInput} value={endDate} onChangeText={setEndDate} placeholder="YYYY-MM-DD" placeholderTextColor={Colors.textMuted} />
-          </View>
-        </View>
+        ) : null}
 
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-        <TouchableOpacity style={[styles.genBtn, loading && { opacity: 0.7 }]} onPress={handleGenerate} disabled={loading}>
+        <TouchableOpacity 
+          style={[styles.generateBtn, loading && styles.generateBtnDisabled]} 
+          onPress={handleGenerate} 
+          disabled={loading}
+        >
           {loading ? (
-            <View style={styles.loadingRow}><ActivityIndicator color="white" size="small" /><Text style={styles.genBtnText}>Crafting your itinerary...</Text></View>
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator color={Colors.white} size="small" />
+              <Text style={styles.generateText}>{status || 'Generating...'}</Text>
+            </View>
           ) : (
-            <Text style={styles.genBtnText}>Generate Itinerary ✨</Text>
+            <Text style={styles.generateText}>✨ Generate Itinerary</Text>
           )}
         </TouchableOpacity>
       </ScrollView>
@@ -128,36 +175,26 @@ export default function PlanTripScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  content: { padding: Spacing.lg, paddingBottom: scale(32) },
-  label: { fontSize: scale(12), fontWeight: '600', color: Colors.textPrimary, marginBottom: scale(6), marginTop: Spacing.md },
-  textArea: {
-    backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md,
-    fontSize: scale(13), color: Colors.textPrimary, textAlignVertical: 'top', minHeight: scale(80),
-    borderWidth: 1, borderColor: Colors.border,
-  },
+  container: { flex: 1, backgroundColor: Colors.primary },
+  content: { padding: Spacing.lg },
+  label: { fontSize: scale(12), fontWeight: '600', color: Colors.tabInactive, marginBottom: Spacing.sm, marginTop: Spacing.md },
+  textArea: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: Radius.md, padding: Spacing.md, color: Colors.white, fontSize: scale(14), minHeight: scale(80), textAlignVertical: 'top' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  chip: { backgroundColor: Colors.white, borderRadius: Radius.full, paddingHorizontal: scale(12), paddingVertical: scale(6), borderWidth: 1, borderColor: Colors.border },
-  chipActive: { backgroundColor: Colors.accent, borderColor: Colors.accent },
-  chipText: { fontSize: scale(11), fontWeight: '600', color: Colors.textSecondary },
-  chipTextActive: { color: Colors.white },
+  chip: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: Radius.full, paddingVertical: scale(6), paddingHorizontal: scale(12), borderWidth: 1, borderColor: 'transparent' },
+  chipActive: { backgroundColor: Colors.accentLight, borderColor: Colors.accent },
+  chipText: { fontSize: scale(12), color: Colors.white, fontWeight: '500' },
+  chipTextActive: { color: Colors.accent, fontWeight: '700' },
   modeRow: { flexDirection: 'row', gap: Spacing.sm },
-  modeBtn: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: scale(4),
-    backgroundColor: Colors.white, borderRadius: Radius.md, paddingVertical: scale(10),
-    borderWidth: 1.5, borderColor: Colors.border,
-  },
-  modeBtnActive: { borderColor: Colors.accent, backgroundColor: Colors.accentLight },
-  modeIcon: { fontSize: scale(14) },
-  modeText: { fontSize: scale(11), fontWeight: '600', color: Colors.textSecondary },
-  modeTextActive: { color: Colors.accent },
-  timeRow: { flexDirection: 'row', gap: Spacing.sm },
-  timeInput: {
-    backgroundColor: Colors.white, borderRadius: Radius.md, paddingVertical: scale(10),
-    fontSize: scale(14), color: Colors.textPrimary, textAlign: 'center', borderWidth: 1, borderColor: Colors.border,
-  },
-  errorText: { color: Colors.error, fontSize: scale(12), textAlign: 'center', marginTop: Spacing.sm },
-  genBtn: { backgroundColor: Colors.accent, borderRadius: Radius.full, paddingVertical: scale(13), alignItems: 'center', marginTop: Spacing.lg },
-  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: scale(8) },
-  genBtnText: { color: Colors.white, fontSize: scale(14), fontWeight: '700' },
+  modeBtn: { flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: Radius.md, padding: Spacing.md, alignItems: 'center', borderWidth: 2, borderColor: 'transparent' },
+  modeBtnActive: { backgroundColor: Colors.accentLight, borderColor: Colors.accent },
+  modeIcon: { fontSize: scale(24), marginBottom: scale(4) },
+  modeText: { fontSize: scale(11), color: Colors.white, fontWeight: '500' },
+  modeTextActive: { color: Colors.accent, fontWeight: '700' },
+  timeRow: { flexDirection: 'row', gap: Spacing.md },
+  timeInput: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: Radius.md, padding: Spacing.md, color: Colors.white, fontSize: scale(14) },
+  error: { color: Colors.error, fontSize: scale(12), marginTop: Spacing.sm },
+  generateBtn: { backgroundColor: Colors.accent, borderRadius: Radius.lg, paddingVertical: scale(14), alignItems: 'center', marginTop: Spacing.xl },
+  generateBtnDisabled: { opacity: 0.6 },
+  generateText: { color: Colors.white, fontSize: scale(15), fontWeight: '700' },
+  loadingContainer: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
 });

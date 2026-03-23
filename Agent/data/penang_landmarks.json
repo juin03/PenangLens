@@ -11,7 +11,10 @@
       "Chapel and ammunition storage rooms"
     ],
     "visitor_tips": "Guided tours available; combine with a walk along the Esplanade",
-    "tags": ["history", "heritage"],
+    "tags": [
+      "history",
+      "heritage"
+    ],
     "category": "heritage",
     "location": "Jalan Tun Syed Sheh Barakbah, George Town, Penang",
     "lat": 5.4215,
@@ -20,7 +23,10 @@
     "opening_hours": "08:00-23:00",
     "entry_fee": "RM20 (adult), RM10 (child)",
     "budget_level": "low",
-    "accessibility": ["wheelchair_partial", "flat_ground"],
+    "accessibility": [
+      "wheelchair_partial",
+      "flat_ground"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning or late afternoon to avoid heat"
   },
@@ -40,7 +46,11 @@
       "Trishaw Man caricature"
     ],
     "visitor_tips": "Best visited early morning (7-9 AM) to avoid crowds; start at Armenian Street; many murals are scattered across 1.5km area",
-    "tags": ["art", "outdoor", "photography"],
+    "tags": [
+      "art",
+      "outdoor",
+      "photography"
+    ],
     "category": "art",
     "location": "Armenian Street, George Town, Penang",
     "lat": 5.4148,
@@ -49,7 +59,9 @@
     "opening_hours": "24 hours",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["wheelchair_partial"],
+    "accessibility": [
+      "wheelchair_partial"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Early morning (7-9 AM) for best lighting and fewer crowds"
   },
@@ -65,16 +77,24 @@
       "Inclined lift to upper levels"
     ],
     "visitor_tips": "Visit during Chinese New Year for stunning light displays; wear comfortable shoes for climbing",
-    "tags": ["heritage", "culture", "outdoor", "religious"],
+    "tags": [
+      "heritage",
+      "culture",
+      "outdoor",
+      "religious"
+    ],
     "category": "religious",
     "location": "Air Itam, Penang",
     "lat": 5.3994,
     "lng": 100.2737,
-    "avg_duration_min": 90,
+    "avg_duration_min": 120,
     "opening_hours": "08:00-18:00",
     "entry_fee": "Free (pagoda RM2, inclined lift RM5)",
     "budget_level": "low",
-    "accessibility": ["limited_wheelchair", "many_stairs"],
+    "accessibility": [
+      "limited_wheelchair",
+      "many_stairs"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning for cooler temperatures; Chinese New Year for light festival"
   },
@@ -91,7 +111,11 @@
       "Colonial-era bungalows"
     ],
     "visitor_tips": "Take funicular train early morning or late afternoon to avoid queues; bring a light jacket",
-    "tags": ["nature", "outdoor", "scenic"],
+    "tags": [
+      "nature",
+      "outdoor",
+      "scenic"
+    ],
     "category": "nature",
     "location": "Bukit Bendera, Penang",
     "lat": 5.4237,
@@ -100,7 +124,9 @@
     "opening_hours": "06:30-23:00",
     "entry_fee": "RM30 (adult), RM15 (child) for funicular",
     "budget_level": "medium",
-    "accessibility": ["wheelchair_funicular_only"],
+    "accessibility": [
+      "wheelchair_funicular_only"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Sunrise or late afternoon for best views"
   },
@@ -116,7 +142,11 @@
       "Sunset views over the strait"
     ],
     "visitor_tips": "Visit Chew Jetty (most touristy) or Tan Jetty (more authentic); respect residents' privacy; go at sunset for best photos",
-    "tags": ["heritage", "culture", "outdoor"],
+    "tags": [
+      "heritage",
+      "culture",
+      "outdoor"
+    ],
     "category": "heritage",
     "location": "Pengkalan Weld, George Town, Penang",
     "lat": 5.4098,
@@ -125,7 +155,10 @@
     "opening_hours": "24 hours",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["narrow_wooden_walkways", "not_wheelchair_accessible"],
+    "accessibility": [
+      "narrow_wooden_walkways",
+      "not_wheelchair_accessible"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Late afternoon for sunset"
   },
@@ -141,7 +174,11 @@
       "Courtyard architecture"
     ],
     "visitor_tips": "Don't miss the photo museum upstairs; entry fee RM10 for adults",
-    "tags": ["history", "heritage", "culture"],
+    "tags": [
+      "history",
+      "heritage",
+      "culture"
+    ],
     "category": "heritage",
     "location": "Cannon Square, George Town, Penang",
     "lat": 5.4137,
@@ -150,7 +187,10 @@
     "opening_hours": "09:00-17:00",
     "entry_fee": "RM10 (adult), RM1 (child)",
     "budget_level": "low",
-    "accessibility": ["stairs_required", "limited_wheelchair"],
+    "accessibility": [
+      "stairs_required",
+      "limited_wheelchair"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning for fewer crowds"
   },
@@ -166,7 +206,11 @@
       "Canopy walk"
     ],
     "visitor_tips": "Bring water and wear hiking shoes; register at entrance; popular trails include Monkey Beach (1.5hr) and Turtle Beach (2hr)",
-    "tags": ["nature", "outdoor", "adventure"],
+    "tags": [
+      "nature",
+      "outdoor",
+      "adventure"
+    ],
     "category": "nature",
     "location": "Teluk Bahang, Penang",
     "lat": 5.4618,
@@ -175,7 +219,10 @@
     "opening_hours": "08:00-17:00",
     "entry_fee": "Free (registration required)",
     "budget_level": "free",
-    "accessibility": ["not_wheelchair_accessible", "hiking_required"],
+    "accessibility": [
+      "not_wheelchair_accessible",
+      "hiking_required"
+    ],
     "family_friendly": false,
     "best_time_to_visit": "Early morning to avoid afternoon heat"
   },
@@ -191,7 +238,10 @@
       "Pasembur (Indian-Malay salad)"
     ],
     "visitor_tips": "Best visited for dinner (6-10 PM); try char kway teow, rojak, and cendol; bring cash",
-    "tags": ["food", "outdoor"],
+    "tags": [
+      "food",
+      "outdoor"
+    ],
     "category": "food",
     "location": "Gurney Drive, George Town, Penang",
     "lat": 5.4378,
@@ -200,7 +250,10 @@
     "opening_hours": "18:00-02:00",
     "entry_fee": "Free (pay per dish, avg RM5-15)",
     "budget_level": "low",
-    "accessibility": ["wheelchair_accessible", "flat_ground"],
+    "accessibility": [
+      "wheelchair_accessible",
+      "flat_ground"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Evening (6-10 PM) for the full experience"
   },
@@ -216,7 +269,11 @@
       "Painted glass windows"
     ],
     "visitor_tips": "Guided tours only at 11 AM and 2 PM; book in advance; also known as 'The Blue Mansion'",
-    "tags": ["history", "heritage", "culture"],
+    "tags": [
+      "history",
+      "heritage",
+      "culture"
+    ],
     "category": "heritage",
     "location": "Leith Street, George Town, Penang",
     "lat": 5.4213,
@@ -225,7 +282,10 @@
     "opening_hours": "11:00-15:00",
     "entry_fee": "RM17 (adult), RM8.50 (child)",
     "budget_level": "low",
-    "accessibility": ["limited_wheelchair", "stairs_in_some_areas"],
+    "accessibility": [
+      "limited_wheelchair",
+      "stairs_in_some_areas"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "11 AM or 2 PM guided tour slots"
   },
@@ -241,7 +301,11 @@
       "Beach bar scene"
     ],
     "visitor_tips": "Visit the night market (6-11 PM) for souvenirs; best swimming during calm mornings; negotiate prices for water sports",
-    "tags": ["beach", "outdoor", "nature"],
+    "tags": [
+      "beach",
+      "outdoor",
+      "nature"
+    ],
     "category": "beach",
     "location": "Batu Ferringhi, Penang",
     "lat": 5.4707,
@@ -250,7 +314,10 @@
     "opening_hours": "24 hours",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["sandy_terrain", "limited_wheelchair"],
+    "accessibility": [
+      "sandy_terrain",
+      "limited_wheelchair"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Late afternoon for sunset; evening for night market"
   },
@@ -266,7 +333,11 @@
       "Wedding chamber"
     ],
     "visitor_tips": "Allow at least 45 mins; photography allowed; air-conditioned",
-    "tags": ["heritage", "culture", "history"],
+    "tags": [
+      "heritage",
+      "culture",
+      "history"
+    ],
     "category": "heritage",
     "location": "29 Church Street, George Town, Penang",
     "lat": 5.4176,
@@ -275,7 +346,10 @@
     "opening_hours": "09:30-17:00",
     "entry_fee": "RM20 (adult), RM10 (child)",
     "budget_level": "low",
-    "accessibility": ["wheelchair_partial", "ground_floor_accessible"],
+    "accessibility": [
+      "wheelchair_partial",
+      "ground_floor_accessible"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning for fewer crowds"
   },
@@ -284,16 +358,23 @@
     "name": "Kapitan Keling Mosque",
     "description": "Historic Indian-Muslim mosque built in the early 19th century, one of the most iconic in Penang",
     "significance": "Named after the leader (Kapitan) of Penang's Keling (Indian Muslim) community; a key part of the Street of Harmony",
-    "tags": ["heritage", "culture", "religious"],
+    "tags": [
+      "heritage",
+      "culture",
+      "religious"
+    ],
     "category": "religious",
     "location": "Jalan Masjid Kapitan Keling, George Town, Penang",
     "lat": 5.4151,
     "lng": 100.3392,
-    "avg_duration_min": 20,
+    "avg_duration_min": 30,
     "opening_hours": "24 hours",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["wheelchair_accessible", "flat_ground"],
+    "accessibility": [
+      "wheelchair_accessible",
+      "flat_ground"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Outside prayer times; dress modestly"
   },
@@ -302,16 +383,22 @@
     "name": "Sri Mahamariamman Temple",
     "description": "Oldest Hindu temple in Penang, featuring a stunning ornate gopuram (entrance tower)",
     "significance": "Part of the famous Street of Harmony alongside a mosque, Chinese temple, and church within 200m",
-    "tags": ["heritage", "culture", "religious"],
+    "tags": [
+      "heritage",
+      "culture",
+      "religious"
+    ],
     "category": "religious",
     "location": "Lebuh Queen, George Town, Penang",
     "lat": 5.4144,
     "lng": 100.3385,
-    "avg_duration_min": 20,
+    "avg_duration_min": 30,
     "opening_hours": "06:00-21:00",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["wheelchair_partial"],
+    "accessibility": [
+      "wheelchair_partial"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning; remove shoes before entering"
   },
@@ -320,16 +407,22 @@
     "name": "Goddess of Mercy Temple (Kuan Yin Teng)",
     "description": "One of the oldest Chinese temples in Penang, built in 1728",
     "significance": "Dedicated to Kuan Yin, Goddess of Mercy; important spiritual center for Penang's Chinese community",
-    "tags": ["heritage", "culture", "religious"],
+    "tags": [
+      "heritage",
+      "culture",
+      "religious"
+    ],
     "category": "religious",
     "location": "Jalan Masjid Kapitan Keling, George Town, Penang",
     "lat": 5.4157,
     "lng": 100.3379,
-    "avg_duration_min": 20,
+    "avg_duration_min": 30,
     "opening_hours": "07:00-19:00",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["wheelchair_accessible"],
+    "accessibility": [
+      "wheelchair_accessible"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning for a quieter experience"
   },
@@ -338,7 +431,10 @@
     "name": "St. George's Church",
     "description": "The oldest Anglican church in Southeast Asia, built in 1818",
     "significance": "Part of the Street of Harmony; stunning white colonial architecture with a memorial canopy",
-    "tags": ["heritage", "history"],
+    "tags": [
+      "heritage",
+      "history"
+    ],
     "category": "heritage",
     "location": "Lebuh Farquhar, George Town, Penang",
     "lat": 5.4199,
@@ -347,7 +443,10 @@
     "opening_hours": "09:00-17:00",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["wheelchair_accessible", "flat_ground"],
+    "accessibility": [
+      "wheelchair_accessible",
+      "flat_ground"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning"
   },
@@ -362,7 +461,11 @@
       "TOP observation deck"
     ],
     "visitor_tips": "Buy combo tickets for best value; accessible via bus and rapid transit",
-    "tags": ["outdoor", "scenic", "adventure"],
+    "tags": [
+      "outdoor",
+      "scenic",
+      "adventure"
+    ],
     "category": "adventure",
     "location": "Jalan Penang, George Town, Penang",
     "lat": 5.4141,
@@ -371,7 +474,10 @@
     "opening_hours": "10:00-22:00",
     "entry_fee": "RM68 (The Top combo), individual attractions vary",
     "budget_level": "medium",
-    "accessibility": ["wheelchair_accessible", "elevator"],
+    "accessibility": [
+      "wheelchair_accessible",
+      "elevator"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Late afternoon for sunset views"
   },
@@ -381,7 +487,10 @@
     "description": "Award-winning 8-acre garden showcasing over 500 species of tropical flora",
     "significance": "Educational nature attraction highlighting Southeast Asian spice heritage",
     "visitor_tips": "Guided tours highly recommended; combine with Batu Ferringhi beach visit",
-    "tags": ["nature", "outdoor"],
+    "tags": [
+      "nature",
+      "outdoor"
+    ],
     "category": "nature",
     "location": "Teluk Bahang, Penang",
     "lat": 5.4612,
@@ -390,7 +499,10 @@
     "opening_hours": "09:00-18:00",
     "entry_fee": "RM35 (adult), RM15 (child)",
     "budget_level": "medium",
-    "accessibility": ["paved_paths", "wheelchair_partial"],
+    "accessibility": [
+      "paved_paths",
+      "wheelchair_partial"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning for cooler temperatures"
   },
@@ -399,7 +511,10 @@
     "name": "Entopia by Penang Butterfly Farm",
     "description": "Interactive nature discovery hub with over 15,000 butterflies and insects",
     "significance": "One of the first butterfly farms in the world; award-winning nature education center",
-    "tags": ["nature", "outdoor"],
+    "tags": [
+      "nature",
+      "outdoor"
+    ],
     "category": "nature",
     "location": "Teluk Bahang, Penang",
     "lat": 5.4536,
@@ -408,7 +523,10 @@
     "opening_hours": "09:00-18:00",
     "entry_fee": "RM52 (adult), RM37 (child)",
     "budget_level": "medium",
-    "accessibility": ["wheelchair_accessible", "elevator"],
+    "accessibility": [
+      "wheelchair_accessible",
+      "elevator"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning when butterflies are most active"
   },
@@ -417,7 +535,10 @@
     "name": "ESCAPE Theme Park",
     "description": "Outdoor adventure theme park with water slides, obstacle courses, and zip lines",
     "significance": "Award-winning eco-adventure park emphasized outdoor play and nature",
-    "tags": ["adventure", "outdoor"],
+    "tags": [
+      "adventure",
+      "outdoor"
+    ],
     "category": "adventure",
     "location": "Teluk Bahang, Penang",
     "lat": 5.4532,
@@ -426,7 +547,9 @@
     "opening_hours": "10:00-18:00",
     "entry_fee": "RM128 (adult), RM98 (child)",
     "budget_level": "high",
-    "accessibility": ["not_wheelchair_accessible"],
+    "accessibility": [
+      "not_wheelchair_accessible"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Full day recommended; arrive at opening"
   },
@@ -436,7 +559,11 @@
     "description": "WWII-era fort and military museum built into the hillside, the largest war museum in Asia",
     "significance": "Japanese WWII execution site, exploring Penang's dark wartime history",
     "visitor_tips": "Wear comfortable shoes; bring a flashlight; some tunnels are dark; can be eerie",
-    "tags": ["history", "outdoor", "adventure"],
+    "tags": [
+      "history",
+      "outdoor",
+      "adventure"
+    ],
     "category": "heritage",
     "location": "Batu Maung, Penang",
     "lat": 5.288,
@@ -445,7 +572,10 @@
     "opening_hours": "09:00-18:00",
     "entry_fee": "RM25 (adult), RM12 (child)",
     "budget_level": "low",
-    "accessibility": ["not_wheelchair_accessible", "steep_terrain"],
+    "accessibility": [
+      "not_wheelchair_accessible",
+      "steep_terrain"
+    ],
     "family_friendly": false,
     "best_time_to_visit": "Morning to afternoon"
   },
@@ -454,7 +584,11 @@
     "name": "Snake Temple",
     "description": "Unique Buddhist temple with live pit vipers draped around the altar and beams",
     "significance": "One of the few temples in the world with live snakes; built in 1850",
-    "tags": ["culture", "heritage", "religious"],
+    "tags": [
+      "culture",
+      "heritage",
+      "religious"
+    ],
     "category": "religious",
     "location": "Bayan Lepas, Penang",
     "lat": 5.316,
@@ -463,7 +597,9 @@
     "opening_hours": "06:00-19:00",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["wheelchair_partial"],
+    "accessibility": [
+      "wheelchair_partial"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning when snakes are most visible"
   },
@@ -472,7 +608,10 @@
     "name": "Penang Botanic Gardens",
     "description": "130-year-old tropical gardens with a waterfall trail, canopy walk, and monkey habitat",
     "significance": "Known locally as 'Waterfall Gardens'; major green lung and recreational area for locals",
-    "tags": ["nature", "outdoor"],
+    "tags": [
+      "nature",
+      "outdoor"
+    ],
     "category": "nature",
     "location": "Jalan Kebun Bunga, George Town, Penang",
     "lat": 5.4398,
@@ -481,7 +620,10 @@
     "opening_hours": "05:00-20:00",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["wheelchair_partial", "paved_paths"],
+    "accessibility": [
+      "wheelchair_partial",
+      "paved_paths"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Early morning for jogging; anytime for strolling"
   },
@@ -490,7 +632,10 @@
     "name": "Penang 3D Trick Art Museum",
     "description": "Interactive art museum with 3D murals where visitors become part of the artwork",
     "significance": "Fun photo opportunity attraction in the heart of George Town",
-    "tags": ["art", "photography"],
+    "tags": [
+      "art",
+      "photography"
+    ],
     "category": "art",
     "location": "Lebuh Penang, George Town, Penang",
     "lat": 5.4151,
@@ -499,7 +644,10 @@
     "opening_hours": "09:00-18:00",
     "entry_fee": "RM30 (adult), RM22 (child)",
     "budget_level": "medium",
-    "accessibility": ["wheelchair_accessible", "elevator"],
+    "accessibility": [
+      "wheelchair_accessible",
+      "elevator"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Anytime; air-conditioned"
   },
@@ -508,7 +656,11 @@
     "name": "Camera Museum",
     "description": "Museum displaying over 200 cameras from the 1800s onwards, with a rooftop photo studio",
     "significance": "Unique collection tracing the history of photography; located in a restored heritage building",
-    "tags": ["art", "heritage", "photography"],
+    "tags": [
+      "art",
+      "heritage",
+      "photography"
+    ],
     "category": "art",
     "location": "71 Lebuh Muntri, George Town, Penang",
     "lat": 5.4165,
@@ -517,7 +669,9 @@
     "opening_hours": "09:30-18:00",
     "entry_fee": "RM25 (adult), RM12 (child)",
     "budget_level": "low",
-    "accessibility": ["stairs_required"],
+    "accessibility": [
+      "stairs_required"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Anytime; air-conditioned"
   },
@@ -526,7 +680,10 @@
     "name": "Batik Painting Museum",
     "description": "World's first museum dedicated to batik paintings, featuring works by Chuah Thean Teng",
     "significance": "Showcase of batik art originated in Penang; Teng is considered the father of Malaysian batik painting",
-    "tags": ["art", "culture"],
+    "tags": [
+      "art",
+      "culture"
+    ],
     "category": "art",
     "location": "19 Armenian Street, George Town, Penang",
     "lat": 5.4152,
@@ -535,7 +692,9 @@
     "opening_hours": "10:00-18:00",
     "entry_fee": "RM20 (adult)",
     "budget_level": "low",
-    "accessibility": ["wheelchair_partial"],
+    "accessibility": [
+      "wheelchair_partial"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Anytime; air-conditioned"
   },
@@ -544,7 +703,11 @@
     "name": "Hin Bus Depot Art Centre",
     "description": "Converted bus depot turned contemporary art and community space",
     "significance": "Hub for Penang's creative arts scene with rotating exhibitions, workshops, and a weekend market",
-    "tags": ["art", "outdoor", "shopping"],
+    "tags": [
+      "art",
+      "outdoor",
+      "shopping"
+    ],
     "category": "art",
     "location": "31A Jalan Gurdwara, George Town, Penang",
     "lat": 5.4095,
@@ -553,7 +716,10 @@
     "opening_hours": "10:00-18:00",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["wheelchair_accessible", "flat_ground"],
+    "accessibility": [
+      "wheelchair_accessible",
+      "flat_ground"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Sunday for the weekly market (10 AM - 4 PM)"
   },
@@ -562,16 +728,20 @@
     "name": "Nasi Kandar Line Clear",
     "description": "Legendary 24-hour nasi kandar stall, one of the oldest and most famous in Penang",
     "significance": "Iconic Penang food institution; consistently rated among the best nasi kandar worldwide",
-    "tags": ["food"],
+    "tags": [
+      "food"
+    ],
     "category": "food",
     "location": "Jalan Penang, George Town, Penang",
     "lat": 5.4173,
     "lng": 100.3326,
-    "avg_duration_min": 30,
+    "avg_duration_min": 45,
     "opening_hours": "24 hours",
     "entry_fee": "Avg RM8-15 per meal",
     "budget_level": "low",
-    "accessibility": ["wheelchair_partial"],
+    "accessibility": [
+      "wheelchair_partial"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Lunch or late night for the best experience"
   },
@@ -587,7 +757,10 @@
       "Hokkien Mee"
     ],
     "visitor_tips": "Opens from 5 PM; cash only; arrive early as popular stalls sell out",
-    "tags": ["food", "outdoor"],
+    "tags": [
+      "food",
+      "outdoor"
+    ],
     "category": "food",
     "location": "Lorong Baru, George Town, Penang",
     "lat": 5.4122,
@@ -596,7 +769,9 @@
     "opening_hours": "17:00-23:00",
     "entry_fee": "Avg RM5-12 per dish",
     "budget_level": "low",
-    "accessibility": ["wheelchair_partial"],
+    "accessibility": [
+      "wheelchair_partial"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "6-8 PM before popular stalls sell out"
   },
@@ -605,7 +780,9 @@
     "name": "Tek Sen Restaurant",
     "description": "Legendary Chinese restaurant known for its claypot dishes and double-roasted pork",
     "significance": "Consistently featured in international food media; reservations recommended",
-    "tags": ["food"],
+    "tags": [
+      "food"
+    ],
     "category": "food",
     "location": "18 Lebuh Carnarvon, George Town, Penang",
     "lat": 5.4142,
@@ -614,7 +791,9 @@
     "opening_hours": "12:00-14:30, 18:00-21:30",
     "entry_fee": "Avg RM20-40 per person",
     "budget_level": "medium",
-    "accessibility": ["wheelchair_partial"],
+    "accessibility": [
+      "wheelchair_partial"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Arrive at opening; closed on Saturdays"
   },
@@ -623,7 +802,11 @@
     "name": "Chulia Street Night Market",
     "description": "Vibrant night market on Lebuh Chulia with food, souvenirs, clothing, and local crafts",
     "significance": "Heart of the backpacker district; great for affordable shopping and street food",
-    "tags": ["food", "outdoor", "shopping"],
+    "tags": [
+      "food",
+      "outdoor",
+      "shopping"
+    ],
     "category": "shopping",
     "location": "Lebuh Chulia, George Town, Penang",
     "lat": 5.4148,
@@ -632,7 +815,9 @@
     "opening_hours": "18:00-01:00",
     "entry_fee": "Free",
     "budget_level": "low",
-    "accessibility": ["wheelchair_partial"],
+    "accessibility": [
+      "wheelchair_partial"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "8-10 PM for the liveliest atmosphere"
   },
@@ -641,7 +826,11 @@
     "name": "Penang Peranakan Museum (Green Mansion)",
     "description": "Grand Peranakan mansion with original antique furnishings, tiles, and artifacts",
     "significance": "One of the most authentic Peranakan heritage experiences in Malaysia",
-    "tags": ["heritage", "culture", "history"],
+    "tags": [
+      "heritage",
+      "culture",
+      "history"
+    ],
     "category": "heritage",
     "location": "Lebuh Gereja, George Town, Penang",
     "lat": 5.4179,
@@ -650,7 +839,9 @@
     "opening_hours": "09:30-17:00",
     "entry_fee": "RM20 (adult), RM10 (child)",
     "budget_level": "low",
-    "accessibility": ["limited_wheelchair"],
+    "accessibility": [
+      "limited_wheelchair"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning"
   },
@@ -659,7 +850,11 @@
     "name": "Penang State Museum",
     "description": "Museum depicting Penang's history, heritage, and diverse cultural communities",
     "significance": "Good introduction to Penang's multicultural history and colonial past",
-    "tags": ["history", "heritage", "culture"],
+    "tags": [
+      "history",
+      "heritage",
+      "culture"
+    ],
     "category": "heritage",
     "location": "Lebuh Farquhar, George Town, Penang",
     "lat": 5.4206,
@@ -668,7 +863,9 @@
     "opening_hours": "09:00-17:00",
     "entry_fee": "RM5 (adult), RM2 (child)",
     "budget_level": "low",
-    "accessibility": ["wheelchair_partial"],
+    "accessibility": [
+      "wheelchair_partial"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Anytime; air-conditioned"
   },
@@ -677,7 +874,12 @@
     "name": "Street of Harmony (Jalan Masjid Kapitan Keling)",
     "description": "A single street hosting a mosque, Hindu temple, Chinese temple, and Anglican church within 200 meters",
     "significance": "UNESCO-recognized symbol of Penang's multicultural tolerance and coexistence",
-    "tags": ["heritage", "culture", "history", "religious"],
+    "tags": [
+      "heritage",
+      "culture",
+      "history",
+      "religious"
+    ],
     "category": "heritage",
     "location": "Jalan Masjid Kapitan Keling, George Town, Penang",
     "lat": 5.4155,
@@ -686,7 +888,10 @@
     "opening_hours": "24 hours",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["wheelchair_accessible", "flat_ground"],
+    "accessibility": [
+      "wheelchair_accessible",
+      "flat_ground"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning for cooler walking"
   },
@@ -695,7 +900,10 @@
     "name": "Penang Bridge",
     "description": "Iconic 13.5km bridge connecting Penang Island to the mainland",
     "significance": "One of the longest bridges in Southeast Asia; annual Penang Bridge International Marathon",
-    "tags": ["scenic", "outdoor"],
+    "tags": [
+      "scenic",
+      "outdoor"
+    ],
     "category": "heritage",
     "location": "Penang Bridge, Penang",
     "lat": 5.3536,
@@ -704,7 +912,9 @@
     "opening_hours": "24 hours",
     "entry_fee": "Toll RM7 (car)",
     "budget_level": "low",
-    "accessibility": ["driving_only"],
+    "accessibility": [
+      "driving_only"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Sunset for scenic views from the bridge"
   },
@@ -713,16 +923,22 @@
     "name": "Tanjung Bungah Floating Mosque",
     "description": "Beautiful mosque built over the sea with stunning ocean backdrop",
     "significance": "One of the only floating mosques in Malaysia; photogenic architectural landmark",
-    "tags": ["religious", "scenic", "photography"],
+    "tags": [
+      "religious",
+      "scenic",
+      "photography"
+    ],
     "category": "religious",
     "location": "Tanjung Bungah, Penang",
     "lat": 5.4583,
     "lng": 100.2639,
-    "avg_duration_min": 20,
+    "avg_duration_min": 30,
     "opening_hours": "24 hours",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["wheelchair_accessible"],
+    "accessibility": [
+      "wheelchair_accessible"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Sunset for photography; outside prayer times for visits"
   },
@@ -731,16 +947,22 @@
     "name": "Dharmikarama Burmese Temple",
     "description": "Only Burmese temple in Malaysia, featuring a stunning white pagoda and wishing pond",
     "significance": "Adjacent to the Thai temple Wat Chayamangkalaram, making for a unique dual-temple visit",
-    "tags": ["religious", "culture", "heritage"],
+    "tags": [
+      "religious",
+      "culture",
+      "heritage"
+    ],
     "category": "religious",
     "location": "Lorong Burma, George Town, Penang",
     "lat": 5.4311,
     "lng": 100.3105,
-    "avg_duration_min": 20,
+    "avg_duration_min": 30,
     "opening_hours": "06:00-18:00",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["wheelchair_partial"],
+    "accessibility": [
+      "wheelchair_partial"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning; combine with Wat Chayamangkalaram next door"
   },
@@ -749,7 +971,11 @@
     "name": "Wat Chayamangkalaram (Reclining Buddha Temple)",
     "description": "Thai Buddhist temple housing one of the world's longest reclining Buddha statues (33m)",
     "significance": "Rare Thai temple outside Thailand; the golden reclining Buddha is a major attraction",
-    "tags": ["religious", "culture", "heritage"],
+    "tags": [
+      "religious",
+      "culture",
+      "heritage"
+    ],
     "category": "religious",
     "location": "Lorong Burma, George Town, Penang",
     "lat": 5.4315,
@@ -758,7 +984,9 @@
     "opening_hours": "06:00-17:30",
     "entry_fee": "Free (donations welcome)",
     "budget_level": "free",
-    "accessibility": ["wheelchair_accessible"],
+    "accessibility": [
+      "wheelchair_accessible"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning; combine with Burmese temple next door"
   },
@@ -773,16 +1001,23 @@
       "Nature Trail (guided tours)",
       "Zip line (seasonal)"
     ],
-    "tags": ["nature", "outdoor", "adventure"],
+    "tags": [
+      "nature",
+      "outdoor",
+      "adventure"
+    ],
     "category": "nature",
     "location": "Penang Hill, Penang",
     "lat": 5.4231,
     "lng": 100.2705,
-    "avg_duration_min": 90,
+    "avg_duration_min": 120,
     "opening_hours": "09:00-18:00",
     "entry_fee": "RM85 (adult), RM45 (child) — excludes funicular",
     "budget_level": "medium",
-    "accessibility": ["hiking_trails", "some_wheelchair_paths"],
+    "accessibility": [
+      "hiking_trails",
+      "some_wheelchair_paths"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning for clearer views and wildlife"
   },
@@ -791,7 +1026,12 @@
     "name": "Chew Jetty",
     "description": "The largest and most visited of the Clan Jetties, home to the Chew clan",
     "significance": "Living heritage site; residents still live in stilt houses over the sea as their ancestors did",
-    "tags": ["heritage", "culture", "outdoor", "photography"],
+    "tags": [
+      "heritage",
+      "culture",
+      "outdoor",
+      "photography"
+    ],
     "category": "heritage",
     "location": "Pengkalan Weld, George Town, Penang",
     "lat": 5.4089,
@@ -800,7 +1040,9 @@
     "opening_hours": "24 hours",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["narrow_wooden_walkways"],
+    "accessibility": [
+      "narrow_wooden_walkways"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Sunset for golden light photography"
   },
@@ -809,7 +1051,11 @@
     "name": "Little India (Lebuh Pasar)",
     "description": "Vibrant Indian quarter with colorful shops, flower garlands, spice stores, and Indian eateries",
     "significance": "Cultural enclave showcasing Penang's Indian heritage; excellent for authentic Indian food",
-    "tags": ["culture", "food", "shopping"],
+    "tags": [
+      "culture",
+      "food",
+      "shopping"
+    ],
     "category": "shopping",
     "location": "Lebuh Pasar, George Town, Penang",
     "lat": 5.4134,
@@ -818,7 +1064,10 @@
     "opening_hours": "08:00-22:00",
     "entry_fee": "Free",
     "budget_level": "low",
-    "accessibility": ["wheelchair_accessible", "flat_ground"],
+    "accessibility": [
+      "wheelchair_accessible",
+      "flat_ground"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Morning for flower markets; anytime for food"
   },
@@ -833,7 +1082,11 @@
       "Nutmeg factory",
       "Paddy fields"
     ],
-    "tags": ["food", "nature", "culture"],
+    "tags": [
+      "food",
+      "nature",
+      "culture"
+    ],
     "category": "food",
     "location": "Balik Pulau, Penang",
     "lat": 5.3681,
@@ -842,7 +1095,9 @@
     "opening_hours": "24 hours",
     "entry_fee": "Free",
     "budget_level": "low",
-    "accessibility": ["driving_required"],
+    "accessibility": [
+      "driving_required"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "June-August for durian season"
   },
@@ -851,7 +1106,10 @@
     "name": "Penang Interactive Museum (Tech Dome)",
     "description": "Science and technology museum with interactive exhibits and a planetarium",
     "significance": "Educational attraction for families; housed in a heritage-listed waterfront building",
-    "tags": ["culture", "outdoor"],
+    "tags": [
+      "culture",
+      "outdoor"
+    ],
     "category": "heritage",
     "location": "KOMTAR, George Town, Penang",
     "lat": 5.4143,
@@ -860,7 +1118,10 @@
     "opening_hours": "10:00-18:00",
     "entry_fee": "RM35 (adult), RM25 (child)",
     "budget_level": "medium",
-    "accessibility": ["wheelchair_accessible", "elevator"],
+    "accessibility": [
+      "wheelchair_accessible",
+      "elevator"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Anytime; air-conditioned"
   },
@@ -869,7 +1130,9 @@
     "name": "Queensbay Mall",
     "description": "Largest shopping mall in Penang with over 400 stores, a cinema, and waterfront promenade",
     "significance": "Premier shopping destination in Penang for branded goods and entertainment",
-    "tags": ["shopping"],
+    "tags": [
+      "shopping"
+    ],
     "category": "shopping",
     "location": "Bayan Lepas, Penang",
     "lat": 5.3325,
@@ -878,7 +1141,10 @@
     "opening_hours": "10:00-22:00",
     "entry_fee": "Free",
     "budget_level": "medium",
-    "accessibility": ["wheelchair_accessible", "elevator"],
+    "accessibility": [
+      "wheelchair_accessible",
+      "elevator"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Anytime; air-conditioned"
   },
@@ -887,7 +1153,9 @@
     "name": "Gurney Plaza",
     "description": "Upscale shopping mall on Gurney Drive with premium brands and a food court",
     "significance": "Penang's premium shopping destination; close to Gurney Drive hawker centre",
-    "tags": ["shopping"],
+    "tags": [
+      "shopping"
+    ],
     "category": "shopping",
     "location": "Persiaran Gurney, George Town, Penang",
     "lat": 5.437,
@@ -896,7 +1164,10 @@
     "opening_hours": "10:00-22:00",
     "entry_fee": "Free",
     "budget_level": "high",
-    "accessibility": ["wheelchair_accessible", "elevator"],
+    "accessibility": [
+      "wheelchair_accessible",
+      "elevator"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Anytime; combine with Gurney Drive hawker visit"
   },
@@ -905,7 +1176,10 @@
     "name": "Penang Esplanade",
     "description": "Beautiful waterfront promenade along the coast near Fort Cornwallis",
     "significance": "Historic gathering place; ideal for dawn/dusk walks with views of Penang Bridge and the mainland",
-    "tags": ["outdoor", "scenic"],
+    "tags": [
+      "outdoor",
+      "scenic"
+    ],
     "category": "heritage",
     "location": "Jalan Tun Syed Sheh Barakbah, George Town, Penang",
     "lat": 5.4222,
@@ -914,7 +1188,10 @@
     "opening_hours": "24 hours",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["wheelchair_accessible", "flat_ground"],
+    "accessibility": [
+      "wheelchair_accessible",
+      "flat_ground"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Dawn or sunset; evening food stalls on weekends"
   },
@@ -923,7 +1200,11 @@
     "name": "Ayer Itam Dam",
     "description": "Scenic reservoir surrounded by lush greenery, popular for jogging and photography",
     "significance": "Largest reservoir in Penang; tranquil spot away from tourist crowds",
-    "tags": ["nature", "outdoor", "scenic"],
+    "tags": [
+      "nature",
+      "outdoor",
+      "scenic"
+    ],
     "category": "nature",
     "location": "Air Itam, Penang",
     "lat": 5.3988,
@@ -932,7 +1213,10 @@
     "opening_hours": "06:00-19:00",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["paved_walkway", "wheelchair_partial"],
+    "accessibility": [
+      "paved_walkway",
+      "wheelchair_partial"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Early morning for jogging; late afternoon for light"
   },
@@ -941,7 +1225,11 @@
     "name": "Tanjung City Marina",
     "description": "Waterfront marina complex with restaurants, sunset lounge, and boat tours",
     "significance": "Gateway for island-hopping and sunset cruises; modern waterfront dining",
-    "tags": ["outdoor", "scenic", "food"],
+    "tags": [
+      "outdoor",
+      "scenic",
+      "food"
+    ],
     "category": "food",
     "location": "Tanjung City Marina, George Town, Penang",
     "lat": 5.4098,
@@ -950,7 +1238,10 @@
     "opening_hours": "10:00-00:00",
     "entry_fee": "Free (dining varies)",
     "budget_level": "medium",
-    "accessibility": ["wheelchair_accessible", "flat_ground"],
+    "accessibility": [
+      "wheelchair_accessible",
+      "flat_ground"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Sunset for the best views"
   },
@@ -959,16 +1250,20 @@
     "name": "Penang Peranakan Food - Joo Hooi Cafe",
     "description": "Iconic kopitiam famous for its curry mee, asam laksa, and koay chiap",
     "significance": "Over 70 years of serving authentic Penang Hokkien/Nyonya cuisine; consistently top-rated",
-    "tags": ["food"],
+    "tags": [
+      "food"
+    ],
     "category": "food",
     "location": "475 Lebuh Chulia, George Town, Penang",
     "lat": 5.4155,
     "lng": 100.338,
-    "avg_duration_min": 30,
+    "avg_duration_min": 45,
     "opening_hours": "08:00-16:00",
     "entry_fee": "Avg RM5-10 per dish",
     "budget_level": "low",
-    "accessibility": ["wheelchair_partial"],
+    "accessibility": [
+      "wheelchair_partial"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Early morning for breakfast; closed on alternate Tuesdays"
   },
@@ -977,7 +1272,9 @@
     "name": "Air Itam Laksa",
     "description": "Legendary laksa stall near Kek Lok Si Temple, widely considered the best in Penang",
     "significance": "Made international fame on food lists worldwide; simple stall with one dish done to perfection",
-    "tags": ["food"],
+    "tags": [
+      "food"
+    ],
     "category": "food",
     "location": "Jalan Pasar, Air Itam, Penang",
     "lat": 5.3982,
@@ -986,7 +1283,9 @@
     "opening_hours": "08:00-15:00",
     "entry_fee": "RM4-6 per bowl",
     "budget_level": "low",
-    "accessibility": ["wheelchair_partial"],
+    "accessibility": [
+      "wheelchair_partial"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Late morning; combine with Kek Lok Si Temple visit"
   },
@@ -995,7 +1294,10 @@
     "name": "Areca Books",
     "description": "Independent bookshop and cultural space specializing in Penang and Southeast Asian heritage books",
     "significance": "Hub for Penang's literary and intellectual community; hosts regular talks and book launches",
-    "tags": ["culture", "shopping"],
+    "tags": [
+      "culture",
+      "shopping"
+    ],
     "category": "shopping",
     "location": "23 Lebuh Penang, George Town, Penang",
     "lat": 5.4167,
@@ -1004,7 +1306,9 @@
     "opening_hours": "10:00-18:00",
     "entry_fee": "Free",
     "budget_level": "free",
-    "accessibility": ["stairs_required"],
+    "accessibility": [
+      "stairs_required"
+    ],
     "family_friendly": true,
     "best_time_to_visit": "Anytime; check their events calendar"
   }

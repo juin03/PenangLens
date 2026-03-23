@@ -17,6 +17,7 @@ import asyncio
 import traceback
 import time
 import re
+from datetime import datetime, timezone, timedelta
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
@@ -30,6 +31,7 @@ from sse_starlette.sse import EventSourceResponse
 # Our modules
 from src.agent import run_agent, run_agent_stream, get_session_history, delete_session
 from src.indexer import index_spot, delete_spot, search_context
+from src.itinerary_workflow import run_itinerary_workflow
 from src.models import (
     ChatRequest, ChatResponse, StreamEvent, ErrorResponse,
     HealthResponse, SessionHistoryResponse, IntentType,
@@ -40,6 +42,14 @@ from src.extractor import extract_structured_itinerary, build_generate_prompt
 from src.token_tracker import TokenTracker
 from src.logging_config import setup_logging, setup_langsmith, get_logger
 from src.personalization import personalization_service
+from src.itinerary_workflow import modify_itinerary
+
+def _get_current_datetime() -> str:
+    """Return current Malaysia time as a human-readable string for the Agent."""
+    myt = timezone(timedelta(hours=8))
+    now = datetime.now(myt)
+    return now.strftime("%A, %Y-%m-%d %H:%M (MYT)")
+
 
 # Rate limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -236,6 +246,42 @@ def _extract_response_text(state: dict) -> str:
     return str(final_message)
 
 
+def _format_itinerary_markdown(itinerary) -> str:
+    """Convert ItineraryData to markdown for mobile display."""
+    lines = [f"### {itinerary.summary}\n"]
+    
+    for stop in itinerary.stops:
+        lines.append(f"#### **{stop.order}. {stop.name}**")
+        if stop.travel_to_next:
+            lines.append(f"- **Travel Time:** {stop.travel_to_next.duration_text} ({stop.travel_to_next.distance_text})")
+        lines.append(f"- **Description:** {stop.description}")
+        lines.append(f"- **Visit Duration:** {stop.visit_duration_min} min")
+        if stop.google_maps_url:
+            lines.append(f"- 📍[Google Maps Link]({stop.google_maps_url})")
+        lines.append("")
+    
+    lines.append(f"\n### **Total Duration: {itinerary.total_duration_min} minutes**\n")
+    if itinerary.route_url:
+        lines.append(f"🗺️ [View Route on Google Maps]({itinerary.route_url})\n")
+    
+    return "\n".join(lines)
+
+
+
+def _extract_tool_itinerary(state: dict):
+    """Extract structured itinerary from format_itinerary_tool output in agent state."""
+    from langchain_core.messages import ToolMessage
+    for msg in reversed(state.get("messages", [])):
+        if isinstance(msg, ToolMessage) and msg.name == "format_itinerary_tool":
+            try:
+                data = json.loads(msg.content)
+                if data.get("stops"):
+                    return data
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return None
+
+
 def _classify_intent(message: str) -> IntentType:
     """Simple keyword-based intent classification."""
     msg_lower = message.lower()
@@ -365,6 +411,27 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
             extra={"thread_id": thread_id, "request_id": request_id}
         )
 
+        # --- MODIFY ITINERARY: deterministic workflow ---
+        if intent == IntentType.MODIFY_ITINERARY and chat_request.current_itinerary:
+            try:
+                travel_mode = chat_request.current_itinerary.get("travel_mode", "walking")
+                history = chat_request.history or []
+                result_data = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: modify_itinerary(user_message, chat_request.current_itinerary, travel_mode, history)
+                )
+                logger.info(f"modify_itinerary: success, {len(result_data.stops)} stops")
+                return ChatResponse(
+                    response=f"Done! Updated your itinerary to {len(result_data.stops)} stops.",
+                    thread_id=thread_id,
+                    intent=intent,
+                    structured_itinerary=result_data.model_dump(),
+                    success=True,
+                )
+            except Exception as e:
+                logger.warning(f"modify_itinerary workflow failed: {e}, falling back to agent")
+
+        # --- GENERAL CHAT: free-form agent ---
         # RAG: retrieve relevant Penang content from Azure AI Search
         rag_chunks = search_context(user_message, top_k=3)
         rag_context = ""
@@ -373,7 +440,6 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
             rag_context = "\n\nRelevant Penang Heritage Information:\n" + "\n".join(context_texts)
             logger.debug(f"RAG: injected {len(rag_chunks)} chunks into context")
 
-        # Run the agent (with RAG context appended to message if available)
         augmented_message = user_message
         if rag_context:
             augmented_message += rag_context
@@ -381,13 +447,16 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
             user_message=augmented_message,
             thread_id=thread_id,
             user_preferences=chat_request.user_preferences,
+            history=chat_request.history,
+            context=chat_request.context,
+            current_datetime=_get_current_datetime(),
+            current_itinerary=chat_request.current_itinerary,
             verbose=True,
         )
 
         response_text = _extract_response_text(result["state"])
         actual_thread_id = result["thread_id"]
 
-        # If blocked by guardrail, classify as off-topic
         if result.get("blocked"):
             intent = IntentType.OFF_TOPIC
 
@@ -400,11 +469,25 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
             }
         )
 
+        structured = None
+        itinerary_intents = (IntentType.PLAN_ITINERARY, IntentType.MODIFY_ITINERARY)
+        if not result.get("blocked") and intent in itinerary_intents:
+            structured = _extract_tool_itinerary(result["state"])
+            if not structured:
+                import re as _re
+                if _re.search(r"stop\s*\d+|\d+\.\s+\*\*", response_text, _re.IGNORECASE) and len(response_text) > 300:
+                    try:
+                        structured_obj = await extract_structured_itinerary(response_text)
+                        if structured_obj:
+                            structured = structured_obj.model_dump()
+                    except Exception:
+                        pass
+
         return ChatResponse(
             response=response_text,
             thread_id=actual_thread_id,
             intent=intent,
-            structured_itinerary=None,
+            structured_itinerary=structured,
             token_usage=result.get("token_usage"),
             success=True,
         )
@@ -432,93 +515,61 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
 @limiter.limit("5/minute")
 async def generate_itinerary(request: Request, gen_request: GenerateRequest):
     """
-    Generate an itinerary from the mobile app's form inputs.
-
-    Converts form fields to a natural language prompt, runs the agent,
-    then extracts structured itinerary JSON with lat/lng for map rendering.
-
-    Returns both the markdown response and structured ItineraryData.
+    Generate an itinerary using the deterministic workflow pipeline.
+    Returns structured ItineraryData directly from the workflow.
     """
     request_id = request.headers.get("x-request-id")
     started = time.perf_counter()
 
     try:
-        # Convert form to prompt
-        prompt = build_generate_prompt(
-            description=gen_request.description,
-            interests=gen_request.interests,
-            start_time=gen_request.start_time,
-            end_time=gen_request.end_time,
-            start_location=gen_request.start_location,
-            travel_mode=gen_request.travel_mode,
-            start_date=gen_request.start_date,
-            end_date=gen_request.end_date,
-        )
-
         thread_id = str(uuid.uuid4())
 
-        # Build user preferences from form
-        preferences = UserPreferences(
-            interests=gen_request.interests,
-            travel_mode=gen_request.travel_mode,
+        logger.info(
+            f"Generate request received (workflow)",
+            extra={"thread_id": thread_id, "request_id": request_id}
         )
+
+        # Run workflow in thread pool to avoid blocking async event loop
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: run_itinerary_workflow(
+                description=gen_request.description,
+                interests=gen_request.interests,
+                start_time=gen_request.start_time,
+                end_time=gen_request.end_time,
+                start_location=gen_request.start_location,
+                travel_mode=gen_request.travel_mode,
+                start_date=gen_request.start_date,
+            )
+        )
+
+        # Build markdown response from structured result
+        response_text = _format_itinerary_markdown(result)
 
         logger.info(
-            f"Generate request received",
-            extra={"thread_id": thread_id, "prompt": prompt[:100], "request_id": request_id}
-        )
-
-        # Run the agent
-        result = run_agent(
-            user_message=prompt,
-            thread_id=thread_id,
-            user_preferences=preferences,
-            verbose=True,
-        )
-
-        response_text = _extract_response_text(result["state"])
-        actual_thread_id = result["thread_id"]
-
-        # Extract structured itinerary via Gemini
-        structured = await extract_structured_itinerary(
-            response_text,
-            travel_mode=gen_request.travel_mode,
-        )
-
-        logger.info(
-            f"Generate response sent",
+            f"Generate response sent (workflow)",
             extra={
-                "thread_id": actual_thread_id,
+                "thread_id": thread_id,
                 "request_id": request_id,
-                "has_structured": structured is not None,
-                "stop_count": len(structured.stops) if structured else 0,
+                "stop_count": len(result.stops),
                 "duration_ms": int((time.perf_counter() - started) * 1000),
             }
         )
 
         return GenerateResponse(
             response=response_text,
-            thread_id=actual_thread_id,
-            structured_itinerary=structured,
-            token_usage=result.get("token_usage"),
+            thread_id=thread_id,
+            structured_itinerary=result,
+            token_usage=None,  # workflow doesn't track tokens yet
             success=True,
         )
 
-    except HTTPException:
-        raise
     except Exception as e:
-        message = str(e)
-        quota_match = re.search(r"retry in\s+([0-9]+\.?[0-9]*)s", message, flags=re.IGNORECASE)
-        retry_after_s = float(quota_match.group(1)) if quota_match else None
         logger.error(
-            f"Error in generate endpoint: {e}",
-            exc_info=True,
-            extra={
-                "request_id": request_id,
-                "duration_ms": int((time.perf_counter() - started) * 1000),
-                "is_quota_error": "RESOURCE_EXHAUSTED" in message or "429" in message,
-                "retry_after_s": retry_after_s,
-            },
+            f"Generate failed (workflow): {e}",
+            extra={"thread_id": thread_id, "request_id": request_id},
+            exc_info=True
         )
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -562,6 +613,8 @@ async def chat_stream_v1(request: Request, chat_request: ChatRequest):
                 user_message=user_message,
                 thread_id=thread_id,
                 user_preferences=chat_request.user_preferences,
+                context=chat_request.context,
+                current_datetime=_get_current_datetime(),
             ):
                 yield {
                     "event": event.get("event_type", "token"),
@@ -617,47 +670,50 @@ async def delete_session_endpoint(thread_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/v1/extract")
-async def extract_itinerary_endpoint(request: Request):
-    """
-    Extract structured itinerary data from a text response.
+@app.post("/api/v1/generate/stream")
+@limiter.limit("5/minute")
+async def generate_itinerary_stream(request: Request, gen_request: GenerateRequest):
+    """Stream itinerary generation with status updates via SSE."""
+    async def event_generator():
+        try:
+            from src.itinerary_workflow import run_itinerary_workflow
+            thread_id = str(uuid.uuid4())
 
-    Used by the refinement UI to re-extract structured data
-    after a chat-based itinerary modification.
-    """
-    try:
-        body = await request.json()
-        response_text = body.get("response_text", "")
-        travel_mode = body.get("travel_mode", "walking")
+            yield {"event": "message", "data": json.dumps({'type': 'status', 'message': '🔍 Finding best spots...'})}
 
-        if not response_text:
-            raise HTTPException(status_code=400, detail="response_text is required")
-
-        structured = await extract_structured_itinerary(
-            response_text, travel_mode=travel_mode
-        )
-
-        if structured:
-            return {
-                "success": True,
-                "structured_itinerary": structured.model_dump(),
-            }
-        else:
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "success": False,
-                    "structured_itinerary": None,
-                    "stops": [],
-                    "error": "Could not extract itinerary data"
-                },
+            # Run workflow in thread pool (it's synchronous)
+            loop = asyncio.get_event_loop()
+            structured = await loop.run_in_executor(
+                None,
+                lambda: run_itinerary_workflow(
+                    description=gen_request.description,
+                    interests=gen_request.interests,
+                    start_time=gen_request.start_time,
+                    end_time=gen_request.end_time,
+                    start_location=gen_request.start_location,
+                    travel_mode=gen_request.travel_mode,
+                    start_date=gen_request.start_date,
+                )
             )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Extract error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
 
+            yield {"event": "message", "data": json.dumps({'type': 'status', 'message': '📍 Optimizing route...'})}
+
+            complete_data = {
+                'type': 'complete',
+                'data': {
+                    'structured': structured.model_dump() if structured else None,
+                    'thread_id': thread_id,
+                    'response': structured.summary if structured else '',
+                }
+            }
+            logger.info(f"Sending complete event [thread={thread_id}, stops={len(structured.stops) if structured else 0}]")
+            yield {"event": "message", "data": json.dumps(complete_data)}
+
+        except Exception as e:
+            logger.error(f"Error in generate stream: {e}", exc_info=True)
+            yield {"event": "error", "data": json.dumps({'type': 'error', 'message': str(e)})}
+
+    return EventSourceResponse(event_generator())
 
 @app.get("/api/v1/health", response_model=HealthResponse)
 async def health_v1():

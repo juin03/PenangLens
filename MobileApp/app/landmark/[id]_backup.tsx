@@ -6,9 +6,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Radius, Spacing, scale } from '@/constants/theme';
-import { API_BASE_URL, getToken } from '@/api/client';
-import { streamChat } from '@/api/streaming';
-import { MarkdownText } from '@/components/MarkdownText';
+import { API_BASE_URL, chatWithAgent, getToken } from '@/api/client';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const HERO_H = scale(240);
@@ -111,37 +109,15 @@ export default function SpotDetailScreen() {
     setChatInput('');
     setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setChatLoading(true);
-    
-    const aiMsgIndex = chatMessages.length + 1;
-    setChatMessages(prev => [...prev, { role: 'assistant', content: '' }]);
-    
     try {
-      const stream = streamChat(
-        `[About ${spot?.name ?? nameParam}] ${userMsg}`,
-        threadId ?? `spot_${spotId}`,
-        spotId,
-        "landmark_chat"
-      );
-      let fullResponse = '';
-      
-      for await (const update of stream) {
-        if (update.type === 'chunk') {
-          fullResponse += update.content;
-          setChatMessages(prev => {
-            const newMsgs = [...prev];
-            newMsgs[aiMsgIndex] = { role: 'assistant', content: fullResponse };
-            return newMsgs;
-          });
-        } else if (update.type === 'complete') {
-          setThreadId(update.data?.thread_id);
-        }
-      }
-    } catch {
-      setChatMessages(prev => {
-        const newMsgs = [...prev];
-        newMsgs[aiMsgIndex] = { role: 'assistant', content: 'Connection error. Please try again.' };
-        return newMsgs;
+      const data = await chatWithAgent({
+        message: `[About ${spot?.name ?? nameParam}] ${userMsg}`,
+        thread_id: threadId ?? `spot_${spotId}`,
       });
+      setThreadId(data.thread_id);
+      setChatMessages(prev => [...prev, { role: 'assistant', content: data.response || 'Sorry, I could not answer that.' }]);
+    } catch {
+      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Connection error. Please try again.' }]);
     } finally { setChatLoading(false); }
   };
 
@@ -305,11 +281,7 @@ export default function SpotDetailScreen() {
               return (
                 <View style={{ marginBottom: Spacing.sm }}>
                   <View style={[styles.bubble, isUser ? styles.userBubble : styles.aiBubble]}>
-                    {isUser ? (
-                      <Text style={[styles.bubbleText, { color: Colors.white }]}>{item.content}</Text>
-                    ) : (
-                      <MarkdownText style={styles.bubbleText}>{item.content}</MarkdownText>
-                    )}
+                    <Text style={[styles.bubbleText, isUser && { color: Colors.white }]}>{item.content}</Text>
                   </View>
                   {!isUser && (
                     <View style={styles.feedbackRow}>

@@ -1,23 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Radius, Spacing, scale } from '@/constants/theme';
-import { API_BASE_URL, getStoredUser, logout, updateProfile } from '@/api/client';
+import { API_BASE_URL, getStoredUser, logout } from '@/api/client';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
   const [interests, setInterests] = useState<string[]>([]);
   const [stats, setStats] = useState({ totalScans: 0, uniqueSpots: 0, totalItineraries: 0 });
   const [statsLoading, setStatsLoading] = useState(true);
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [editName, setEditName] = useState('');
-  const [saving, setSaving] = useState(false);
 
   const loadProfileData = async () => {
     setStatsLoading(true);
@@ -32,7 +28,6 @@ export default function ProfileScreen() {
     const user = await getStoredUser();
     if (user) {
       setEmail(user.email || '');
-      setName(user.name || user.email?.split('@')[0] || 'User');
       try {
         const BASE = API_BASE_URL.replace('/api/v1', '');
         const token = user.token;
@@ -61,25 +56,6 @@ export default function ProfileScreen() {
     }, [])
   );
 
-  const handleEditName = () => {
-    setEditName(name);
-    setEditModalVisible(true);
-  };
-
-  const handleSaveName = async () => {
-    if (!editName.trim()) return;
-    setSaving(true);
-    try {
-      await updateProfile({ name: editName.trim() });
-      setName(editName.trim());
-      setEditModalVisible(false);
-    } catch (err) {
-      alert('Failed to update name');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleEditInterests = () => {
     router.push('/onboarding?mode=edit');
   };
@@ -93,12 +69,7 @@ export default function ProfileScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={[styles.header, { paddingTop: insets.top + Spacing.lg }]}>
         <View style={styles.avatar}><Text style={styles.avatarText}>👤</Text></View>
-        <View style={styles.nameRow}>
-          <Text style={styles.name}>{name}</Text>
-          <TouchableOpacity onPress={handleEditName} style={styles.editNameBtn}>
-            <Text style={styles.editNameText}>✏️</Text>
-          </TouchableOpacity>
-        </View>
+        <Text style={styles.name}>{email || 'PenangLens User'}</Text>
         <Text style={styles.email}>{email}</Text>
       </View>
 
@@ -133,7 +104,7 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.menu}>
-        {['Preferences', 'Settings', 'Help & Support'].map(item => (
+        {['Profile', 'Preferences', 'Settings', 'Help & Support'].map(item => (
           <TouchableOpacity key={item} style={styles.menuItem}>
             <Text style={styles.menuText}>{item}</Text>
             <Text style={styles.menuArrow}>›</Text>
@@ -144,30 +115,6 @@ export default function ProfileScreen() {
       <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
         <Text style={styles.logoutText}>Logout</Text>
       </TouchableOpacity>
-
-      <Modal visible={editModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Edit Name</Text>
-            <TextInput
-              style={styles.input}
-              value={editName}
-              onChangeText={setEditName}
-              placeholder="Enter your name"
-              placeholderTextColor={Colors.tabInactive}
-              autoFocus
-            />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity onPress={() => setEditModalVisible(false)} style={styles.cancelBtn}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleSaveName} style={styles.saveBtn} disabled={saving}>
-                <Text style={styles.saveText}>{saving ? 'Saving...' : 'Save'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </ScrollView>
   );
 }
@@ -178,10 +125,7 @@ const styles = StyleSheet.create({
   header: { alignItems: 'center', paddingBottom: Spacing.lg },
   avatar: { width: scale(64), height: scale(64), borderRadius: scale(32), backgroundColor: 'rgba(255,255,255,0.12)', justifyContent: 'center', alignItems: 'center', marginBottom: Spacing.sm },
   avatarText: { fontSize: scale(28) },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: scale(8) },
   name: { fontSize: scale(16), fontWeight: '700', color: Colors.white },
-  editNameBtn: { padding: scale(4) },
-  editNameText: { fontSize: scale(14) },
   email: { fontSize: scale(11), color: Colors.tabInactive, marginTop: scale(2) },
   statsRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: Spacing.xl, marginBottom: Spacing.lg, backgroundColor: 'rgba(255,255,255,0.06)', marginHorizontal: Spacing.md, borderRadius: Radius.lg, paddingVertical: Spacing.md },
   stat: { alignItems: 'center', flex: 1 },
@@ -203,13 +147,4 @@ const styles = StyleSheet.create({
   menuArrow: { fontSize: scale(18), color: Colors.tabInactive },
   logoutBtn: { backgroundColor: Colors.error, marginHorizontal: Spacing.md, borderRadius: Radius.lg, paddingVertical: scale(13), alignItems: 'center' },
   logoutText: { color: Colors.white, fontSize: scale(14), fontWeight: '700' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { backgroundColor: Colors.primary, borderRadius: Radius.lg, padding: Spacing.lg, width: '85%', maxWidth: scale(320) },
-  modalTitle: { fontSize: scale(18), fontWeight: '700', color: Colors.white, marginBottom: Spacing.md },
-  input: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: Radius.md, padding: Spacing.md, color: Colors.white, fontSize: scale(14), marginBottom: Spacing.md },
-  modalButtons: { flexDirection: 'row', gap: Spacing.sm },
-  cancelBtn: { flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: Radius.md, paddingVertical: scale(12), alignItems: 'center' },
-  cancelText: { color: Colors.white, fontSize: scale(14), fontWeight: '600' },
-  saveBtn: { flex: 1, backgroundColor: Colors.accent, borderRadius: Radius.md, paddingVertical: scale(12), alignItems: 'center' },
-  saveText: { color: Colors.white, fontSize: scale(14), fontWeight: '700' },
 });

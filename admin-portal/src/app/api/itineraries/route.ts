@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { name, originalPrompt, generatedNarrative, totalDuration, stops } = body;
+    const { name, originalPrompt, generatedNarrative, totalDuration, stops, threadId } = body;
 
     const itinerary = await prisma.itinerary.create({
       data: {
@@ -30,6 +30,7 @@ export async function POST(request: NextRequest) {
         generatedNarrative,
         totalDuration,
         userId: user.id,
+        threadId: threadId || null,
         stops: stops ? {
           create: stops.map((s: any, i: number) => ({
             stopOrder: s.stopOrder ?? i + 1,
