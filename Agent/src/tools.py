@@ -733,6 +733,9 @@ def search_nearby_places(
             output += f"   Address: {vicinity}\n"
             if is_open is not None:
                 output += f"   Status: {'OPEN NOW' if is_open else 'CLOSED'}\n"
+            weekday_text = place["opening_hours"].get("weekday_text", []) if place["opening_hours"] else []
+            if weekday_text:
+                output += f"   Hours: {' | '.join(weekday_text)}\n"
             if geo.get("lat") and geo.get("lng"):
                 output += f"   LatLng: {geo['lat']},{geo['lng']}\n"
             if place.get("photo_reference"):

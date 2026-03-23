@@ -42,7 +42,7 @@ from src.extractor import extract_structured_itinerary, build_generate_prompt
 from src.token_tracker import TokenTracker
 from src.logging_config import setup_logging, setup_langsmith, get_logger
 from src.personalization import personalization_service
-from src.itinerary_workflow import modify_itinerary
+from src.itinerary_workflow import modify_itinerary, PlaceUnavailableError
 
 def _get_current_datetime() -> str:
     """Return current Malaysia time as a human-readable string for the Agent."""
@@ -426,6 +426,15 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
                     thread_id=thread_id,
                     intent=intent,
                     structured_itinerary=result_data.model_dump(),
+                    success=True,
+                )
+            except PlaceUnavailableError as e:
+                # Return as chat bubble — place is closed at that time
+                return ChatResponse(
+                    response=str(e),
+                    thread_id=thread_id,
+                    intent=IntentType.GENERAL_QUESTION,
+                    structured_itinerary=None,
                     success=True,
                 )
             except Exception as e:

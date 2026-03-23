@@ -348,15 +348,11 @@ Rules:
 - ONLY select SPECIFIC ATTRACTIONS from the candidates list above
 - DO NOT select generic location names like "Penang", "George Town", "Batu Ferringhi"
 - Each stop must be a real place with a specific name (e.g., "Fort Cornwallis", "Kek Lok Si Temple")
-- USE THE FULL TIME BUDGET — but ensure the LAST STOP ENDS by {state['end_time']}
-  * Calculate: last stop arrival + visit duration must be ≤ end time
-  * Don't schedule a stop that would finish after the end time
-- Select ONLY as many stops as fit within the time budget. For {budget} minutes:
-  * < 120 min: 1-2 stops max
-  * 120-240 min: 2-4 stops
-  * 240-360 min: 4-6 stops
-  * > 360 min: 5-7 stops
-- NEVER add stops just to fill a quota — quality over quantity
+- USE THE FULL TIME BUDGET — the itinerary MUST end close to {state['end_time']} (within 30 min)
+  * Keep adding stops until total (visits + travel) fills the budget
+  * Don't schedule a stop that would finish AFTER {state['end_time']}
+  * Example: 09:00-17:00 (480 min) → 09:00 Fort Cornwallis(75min) → 10:20 travel(10min) → 10:30 Kek Lok Si(90min) → 12:15 travel(15min) → 12:30 Lunch(60min) → 13:45 travel(10min) → 13:55 Khoo Kongsi(60min) → 15:05 travel(10min) → 15:15 Blue Mansion(75min) → 16:45 travel(10min) → 16:55 ✅
+  * Example: 09:00-12:00 (180 min) → 09:00 Penang Hill(150min) → 11:30 travel(20min) → 11:50 ✅
 
 Duration Guidelines (be realistic — these are MINIMUM durations, not targets):
 - Penang Hill: MINIMUM 3 hours (30-45 min drive each way + funicular queue + exploring). For 9-12, Penang Hill fills the ENTIRE slot.
@@ -382,7 +378,11 @@ Travel Time Between Stops:
 
 Other Rules:
 - Return stops in a logical visiting order: geographically efficient, time-aware
-- RESPECT OPENING HOURS: only schedule a stop when it is open. If hours say "9:00 AM – 5:00 PM", the visit must start after 9:00 and end before 5:00 PM. Skip places that are closed during the planned visit window.
+- RESPECT OPENING HOURS: each candidate shows its hours. Before selecting a stop, check if it can be visited during the trip window ({state['start_time']}–{state['end_time']}).
+  * If a place opens AFTER the trip starts (e.g. opens 15:00, trip starts 09:00) — it can still be included but MUST be scheduled after it opens. Place it later in the order.
+  * If a place closes BEFORE the trip ends (e.g. closes 17:00, trip ends 21:00) — schedule it early enough that the visit finishes before closing.
+  * If a place is ENTIRELY outside the trip window (e.g. only open 08:00-10:00 but trip starts 12:00) — EXCLUDE it.
+  * Example: Gurney Drive Hawker Centre opens 15:00 → do NOT schedule it at 13:00. Place it at 15:00 or later.
 - If trip spans lunch time (11:30-14:00), include a food stop during that window
 - If trip spans dinner time (18:00-20:30), include a food stop during that window
 - NEVER put two food/restaurant stops consecutively unless it's explicitly a food tour
@@ -875,6 +875,74 @@ def run_itinerary_workflow(
 # Modify Workflow — deterministic itinerary modification
 # ---------------------------------------------------------------------------
 
+class PlaceUnavailableError(Exception):
+    """Raised when a place is closed during the planned visit time."""
+    pass
+
+
+def _is_open_at(hours_text: str, visit_time: str) -> tuple[bool, str]:
+    """
+    Check if a place is open at visit_time (HH:MM) given hours_text like
+    'Monday: 9:00 AM – 9:00 PM | Tuesday: ...'
+    Returns (is_open, hours_for_today).
+    """
+    if not hours_text:
+        return True, ""  # unknown → assume open
+    
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    today_name = day_names[datetime.now().weekday()]
+    
+    # Find today's hours in the pipe-separated string
+    today_hours = ""
+    for part in hours_text.split("|"):
+        part = part.strip()
+        if part.startswith(today_name):
+            today_hours = part
+            break
+    
+    if not today_hours:
+        return True, ""
+    
+    # Check for "Closed"
+    if "Closed" in today_hours or "closed" in today_hours:
+        return False, today_hours
+
+    # Check for 24-hour operation
+    if "24 hours" in today_hours or "24 Hours" in today_hours:
+        return True, today_hours
+
+    # Parse time range e.g. "Monday: 9:00 AM – 9:00 PM"
+    try:
+        import re
+        times = re.findall(r'(\d{1,2}:\d{2}\s*[AP]M)', today_hours)
+        if len(times) >= 2:
+            def to_min(t):
+                t = t.strip().replace('\u202f', ' ').replace('\u2009', '')
+                h, rest = t.split(':')
+                m_part, ampm = rest[:2], rest[2:].strip()
+                h, m = int(h), int(m_part)
+                if ampm.upper() == 'PM' and h != 12:
+                    h += 12
+                if ampm.upper() == 'AM' and h == 12:
+                    h = 0
+                return h * 60 + m
+
+            open_min = to_min(times[0])
+            close_min = to_min(times[1])
+            visit_min = _time_to_min(visit_time)
+
+            # Handle midnight-crossing hours (e.g. 10:00 AM – 2:00 AM next day)
+            if close_min <= open_min:
+                close_min += 24 * 60
+            
+            if visit_min < open_min or visit_min >= close_min:
+                return False, today_hours
+    except Exception:
+        pass
+    
+    return True, today_hours
+
+
 def modify_itinerary(
     user_message: str,
     current_itinerary: dict,
@@ -1002,12 +1070,36 @@ IMPORTANT: "add X" without a position always means INSERT as a new stop (operati
                         place["photo_reference"] = line.replace("PhotoRef:", "").strip()
                     elif line.startswith("Address:"):
                         place["address"] = line.replace("Address:", "").strip()
+                    elif line.startswith("Hours:"):
+                        place["hours"] = line.replace("Hours:", "").strip()
                     elif "Google Maps:" in line:
                         url = line.split("Google Maps:")[-1].strip()
                         if "query_place_id=" in url:
                             place["place_id"] = url.split("query_place_id=")[-1]
                             place["google_maps_url"] = f"https://www.google.com/maps/search/?api=1&query={place.get('name','').replace(' ', '+')}&query_place_id={place['place_id']}"
                 if place.get("name") and place.get("place_id"):
+                    # Check if place is open at planned arrival time
+                    insert_after = op.get("insert_after")
+                    if insert_after == "last" or insert_after is None:
+                        planned_arrival = _min_to_time(_time_to_min(stops_list[-1].get("departure_time", end_time)))
+                    else:
+                        idx = min(int(insert_after), len(stops_list) - 1)
+                        planned_arrival = _min_to_time(_time_to_min(stops_list[idx].get("departure_time", start_time)))
+                    is_open, hours_today = _is_open_at(place.get("hours", ""), planned_arrival)
+                    if not is_open:
+                        try:
+                            llm = _create_llm()
+                            msg = llm.invoke([HumanMessage(content=
+                                f"The user wanted to add '{place['name']}' to their Penang itinerary at {planned_arrival}, "
+                                f"but it's closed then. Hours: {hours_today or 'unknown'}. "
+                                f"Write a short friendly 2-sentence response telling them it's closed and offer to suggest alternatives. "
+                                f"Use markdown bold for the place name."
+                            )]).content.strip()
+                        except Exception:
+                            msg = (f"**{place['name']}** is closed at {planned_arrival}. "
+                                   f"{hours_today} Would you like me to suggest somewhere else? 😊")
+                        raise PlaceUnavailableError(msg)
+                    
                     photo_url = None
                     if place.get("photo_reference") and api_key:
                         photo_url = f"https://places.googleapis.com/v1/{place['photo_reference']}/media?maxHeightPx=400&key={api_key}"
@@ -1022,7 +1114,7 @@ IMPORTANT: "add X" without a position always means INSERT as a new stop (operati
                         "address": place.get("address"),
                         "google_maps_url": place.get("google_maps_url"),
                         "photo_url": photo_url,
-                        "opening_hours": None,
+                        "opening_hours": place.get("hours"),
                         "phone": None,
                         "travel_to_next": None,
                     }
