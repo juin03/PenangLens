@@ -251,7 +251,7 @@ const styles = StyleSheet.create({
   header: { backgroundColor: Colors.primary, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   greeting: { fontSize: scale(20), fontWeight: '800', color: Colors.white },
-  subGreeting: { fontSize: scale(11), color: Colors.tabInactive, marginTop: scale(3) },
+  subGreeting: { fontSize: scale(11), color: Colors.headerSubtitle, marginTop: scale(3) },
 
   toggleRow: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: Radius.md },
   toggleBtn: { padding: scale(8), paddingHorizontal: scale(12), borderRadius: Radius.md },

@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Radius, Spacing, scale } from '@/constants/theme';
+import { Colors, Radius, Spacing, scale, Shadow } from '@/constants/theme';
 import { API_BASE_URL, getToken, saveChatMessages } from '@/api/client';
 import { MarkdownText } from '@/components/MarkdownText';
 
@@ -21,6 +21,7 @@ interface Stop {
 interface ItineraryData {
   stops: Stop[]; summary?: string; total_duration_min?: number; total_distance?: string;
   start_time?: string; end_time?: string; travel_mode?: string; total_travel_time_min?: number;
+  route_url?: string;
 }
 interface PlanMessage { type: 'plan'; version: number; data: ItineraryData; }
 interface ChatMessage { type: 'message'; role: 'user' | 'ai'; text: string; }
@@ -90,16 +91,16 @@ function PlanCard({
             <Text style={styles.planMetaText}>📍 {d.stops.length} stops</Text>
             {d.total_travel_time_min ? (
               <Text style={styles.planMetaText}>
-                {d.travel_mode === 'driving' ? '🚗' : d.travel_mode === 'transit' ? '🚌' : '🚶'} {Math.round(d.total_travel_time_min)} min commute
+                {d.travel_mode === 'driving' ? '🚗' : d.travel_mode === 'transit' ? '🚌' : '🚶'} {Math.round(d.total_travel_time_min)} min
               </Text>
             ) : null}
           </View>
         </View>
-        <Text style={{ fontSize: scale(14), color: '#7c3aed' }}>{collapsed ? '▼' : '▲'}</Text>
+        <Text style={{ fontSize: scale(14), color: Colors.primaryMid }}>{collapsed ? '▼' : '▲'}</Text>
       </TouchableOpacity>
       {d.route_url ? (
-        <TouchableOpacity onPress={() => Linking.openURL(d.route_url!)} style={{ paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, backgroundColor: '#f3e8ff', borderBottomLeftRadius: 8, borderBottomRightRadius: 8 }}>
-          <Text style={{ color: '#7c3aed', fontSize: scale(12), fontWeight: '600', textAlign: 'center' }}>🗺️ View full route in Google Maps →</Text>
+        <TouchableOpacity onPress={() => Linking.openURL(d.route_url!)} style={{ paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, backgroundColor: Colors.accentLight, borderBottomLeftRadius: 8, borderBottomRightRadius: 8 }}>
+          <Text style={{ color: Colors.primaryMid, fontSize: scale(12), fontWeight: '600', textAlign: 'center' }}>🗺️ View full route in Google Maps →</Text>
         </TouchableOpacity>
       ) : null}
 
@@ -693,11 +694,18 @@ const styles = StyleSheet.create({
   backBtn: { backgroundColor: Colors.primary, borderRadius: Radius.md, paddingVertical: scale(10), paddingHorizontal: Spacing.lg },
 
   // Header
-  header: { backgroundColor: Colors.primary, paddingHorizontal: Spacing.md, paddingBottom: Spacing.sm, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  headerBack: { width: scale(34), height: scale(34), borderRadius: scale(17), backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center' },
-  headerBackText: { fontSize: scale(18), color: Colors.white, fontWeight: '700' },
-  headerTitle: { fontSize: scale(15), fontWeight: '800', color: Colors.white },
-  headerSub: { fontSize: scale(10), color: 'rgba(255,255,255,0.65)', marginTop: scale(1) },
+  header: { 
+    backgroundColor: Colors.primary, 
+    paddingHorizontal: Spacing.md, 
+    paddingBottom: Spacing.md, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: Spacing.sm,
+  },
+  headerBack: { width: scale(36), height: scale(36), borderRadius: scale(18), backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center' },
+  headerBackText: { fontSize: scale(20), color: Colors.white, fontWeight: '700' },
+  headerTitle: { fontSize: scale(16), fontWeight: '700', color: Colors.white },
+  headerSub: { fontSize: scale(11), color: 'rgba(255,255,255,0.7)', marginTop: scale(1) },
   doneBtn: { backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: Radius.full, paddingVertical: scale(6), paddingHorizontal: scale(12) },
   doneBtnText: { color: Colors.white, fontWeight: '700', fontSize: scale(12) },
 
@@ -705,30 +713,38 @@ const styles = StyleSheet.create({
   thread: { padding: Spacing.md, paddingBottom: Spacing.sm, gap: Spacing.sm },
 
   // Plan card
-  planCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, borderWidth: 1.5, borderColor: '#7c3aed22', marginVertical: scale(4), overflow: 'hidden' },
-  planHeader: { flexDirection: 'row', alignItems: 'flex-start', padding: Spacing.md, backgroundColor: '#7c3aed0a' },
-  planVersion: { fontSize: scale(10), color: '#7c3aed', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  planTitle: { fontSize: scale(14), fontWeight: '800', color: Colors.textPrimary, marginTop: scale(2) },
-  planMeta: { flexDirection: 'row', gap: Spacing.md, marginTop: scale(4) },
-  planMetaText: { fontSize: scale(11), color: Colors.textMuted, fontWeight: '500' },
+  planCard: { 
+    backgroundColor: Colors.white, 
+    borderRadius: Radius.lg, 
+    borderWidth: 1, 
+    borderColor: Colors.border, 
+    marginVertical: scale(8), 
+    overflow: 'hidden',
+    ...Shadow.md,
+  },
+  planHeader: { flexDirection: 'row', alignItems: 'flex-start', padding: Spacing.md, backgroundColor: Colors.white },
+  planVersion: { fontSize: scale(10), color: Colors.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  planTitle: { fontSize: scale(15), fontWeight: '800', color: Colors.textPrimary, marginTop: scale(2) },
+  planMeta: { flexDirection: 'row', gap: scale(12), marginTop: scale(6) },
+  planMetaText: { fontSize: scale(11), color: Colors.textSecondary, fontWeight: '500' },
 
   stopRow: { flexDirection: 'row', padding: Spacing.sm, gap: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.border },
-  stopBadge: { width: scale(24), height: scale(24), borderRadius: scale(12), backgroundColor: '#7c3aed', justifyContent: 'center', alignItems: 'center', flexShrink: 0, marginTop: scale(2) },
+  stopBadge: { width: scale(24), height: scale(24), borderRadius: scale(12), backgroundColor: Colors.primaryMid, justifyContent: 'center', alignItems: 'center', flexShrink: 0, marginTop: scale(2) },
   stopBadgeText: { color: Colors.white, fontWeight: '800', fontSize: scale(11) },
   stopPhoto: { width: '100%', height: scale(180), borderRadius: Radius.md, marginTop: scale(8), marginBottom: scale(8) },
   stopName: { fontSize: scale(13), fontWeight: '700', color: Colors.textPrimary },
   stopDur: { fontSize: scale(11), color: Colors.textMuted, marginTop: scale(1) },
   stopTime: { fontSize: scale(11), color: Colors.accent, fontWeight: '600', marginTop: scale(1) },
-  stopShort: { fontSize: scale(11), color: '#7c3aed', marginTop: scale(2), fontWeight: '500' },
+  stopShort: { fontSize: scale(11), color: 'Colors.primaryMid', marginTop: scale(2), fontWeight: '500' },
   stopDesc: { fontSize: scale(11), color: Colors.textSecondary, lineHeight: scale(16), marginTop: scale(2) },
   stopDescFull: { fontSize: scale(12), color: Colors.textSecondary, lineHeight: scale(18), marginTop: scale(4), marginBottom: scale(4) },
   mapLink: { marginTop: scale(6), backgroundColor: '#EFF6FF', paddingVertical: scale(6), borderRadius: Radius.sm, alignItems: 'center' },
   mapLinkText: { color: '#2563EB', fontWeight: '600', fontSize: scale(10) },
   travelSeg: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingLeft: scale(40), paddingVertical: scale(4), borderTopWidth: 1, borderTopColor: Colors.border },
-  travelLine: { width: 2, height: scale(14), backgroundColor: '#7c3aed' },
+  travelLine: { width: 2, height: scale(14), backgroundColor: Colors.primaryMid },
   travelText: { fontSize: scale(10), color: Colors.textMuted, fontWeight: '500' },
 
-  ratingBar: { flexDirection: 'row', alignItems: 'center', gap: scale(6), padding: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.border, backgroundColor: '#fafafa' },
+  ratingBar: { flexDirection: 'row', alignItems: 'center', gap: scale(8), padding: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.background, backgroundColor: Colors.white },
   rateLabel: { fontSize: scale(11), color: Colors.textMuted, flex: 1 },
   ratedText: { fontSize: scale(12), color: '#22c55e', fontWeight: '600' },
   verdictBtn: { borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.full, paddingVertical: scale(6), paddingHorizontal: scale(10), backgroundColor: Colors.white },
@@ -741,7 +757,7 @@ const styles = StyleSheet.create({
   modalInput: { backgroundColor: Colors.inputBg, borderRadius: Radius.md, padding: Spacing.sm, fontSize: scale(13), color: Colors.textPrimary, minHeight: scale(60), textAlignVertical: 'top', marginBottom: Spacing.md },
   modalButtons: { flexDirection: 'row', gap: Spacing.sm },
   modalCancel: { flex: 1, padding: Spacing.sm, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, alignItems: 'center' },
-  modalSubmit: { flex: 1, padding: Spacing.sm, borderRadius: Radius.md, backgroundColor: '#7c3aed', alignItems: 'center' },
+  modalSubmit: { flex: 1, padding: Spacing.sm, borderRadius: Radius.md, backgroundColor: Colors.primaryMid, alignItems: 'center' },
 
   // Chat bubbles
   bubble: { padding: scale(10), borderRadius: Radius.lg, maxWidth: '80%', marginVertical: scale(2) },
@@ -758,8 +774,8 @@ const styles = StyleSheet.create({
   suggestText: { fontSize: scale(10), color: Colors.textPrimary, fontWeight: '500' },
   inputBar: { flexDirection: 'row', padding: Spacing.sm, backgroundColor: Colors.white, borderTopWidth: 1, borderTopColor: Colors.border, gap: Spacing.sm },
   inputField: { flex: 1, backgroundColor: Colors.inputBg, borderRadius: Radius.full, paddingHorizontal: Spacing.md, paddingVertical: scale(8), fontSize: scale(13), color: Colors.textPrimary },
-  sendBtn: { width: scale(36), height: scale(36), borderRadius: scale(18), backgroundColor: '#7c3aed', justifyContent: 'center', alignItems: 'center' },
-  sendText: { color: Colors.white, fontSize: scale(16), fontWeight: '700' },
+  sendBtn: { width: scale(40), height: scale(40), borderRadius: scale(20), backgroundColor: Colors.accent, justifyContent: 'center', alignItems: 'center' },
+  sendText: { color: Colors.white, fontSize: scale(18), fontWeight: '700' },
 
   // Stop detail modal
   stopModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },

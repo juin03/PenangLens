@@ -5,7 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Radius, Spacing, scale } from '@/constants/theme';
-import { API_BASE_URL, getStoredUser, logout, updateProfile } from '@/api/client';
+import { getStoredUser, logout, updateProfile } from '@/api/client';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -13,14 +13,13 @@ export default function ProfileScreen() {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [interests, setInterests] = useState<string[]>([]);
-  const [stats, setStats] = useState({ totalScans: 0, uniqueSpots: 0, totalItineraries: 0 });
-  const [statsLoading, setStatsLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editName, setEditName] = useState('');
   const [saving, setSaving] = useState(false);
 
   const loadProfileData = async () => {
-    setStatsLoading(true);
+    setProfileLoading(true);
     const localInterests = await AsyncStorage.getItem('user_interests');
     if (localInterests) {
       const parsedInterests = JSON.parse(localInterests);
@@ -33,22 +32,9 @@ export default function ProfileScreen() {
     if (user) {
       setEmail(user.email || '');
       setName(user.name || user.email?.split('@')[0] || 'User');
-      try {
-        const BASE = API_BASE_URL.replace('/api/v1', '');
-        const token = user.token;
-        const res = await fetch(`${BASE}/api/v1/me/stats`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setStats(data);
-        }
-      } catch { /* silent */ }
-      finally { setStatsLoading(false); }
-      return;
     }
 
-    setStatsLoading(false);
+    setProfileLoading(false);
   };
 
   useEffect(() => {
@@ -100,23 +86,6 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
         <Text style={styles.email}>{email}</Text>
-      </View>
-
-      <View style={styles.statsRow}>
-        <View style={styles.stat}>
-          <Text style={styles.statVal}>{statsLoading ? '—' : stats.totalScans}</Text>
-          <Text style={styles.statLbl}>🔍 Scans</Text>
-        </View>
-        <View style={styles.divider} />
-        <View style={styles.stat}>
-          <Text style={styles.statVal}>{statsLoading ? '—' : stats.uniqueSpots}</Text>
-          <Text style={styles.statLbl}>📍 Spots</Text>
-        </View>
-        <View style={styles.divider} />
-        <View style={styles.stat}>
-          <Text style={styles.statVal}>{statsLoading ? '—' : stats.totalItineraries}</Text>
-          <Text style={styles.statLbl}>🗺️ Plans</Text>
-        </View>
       </View>
 
       <View style={styles.section}>
@@ -173,43 +142,87 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.primary },
+  container: { flex: 1, backgroundColor: Colors.background },
   content: { paddingBottom: scale(30) },
-  header: { alignItems: 'center', paddingBottom: Spacing.lg },
-  avatar: { width: scale(64), height: scale(64), borderRadius: scale(32), backgroundColor: 'rgba(255,255,255,0.12)', justifyContent: 'center', alignItems: 'center', marginBottom: Spacing.sm },
+  header: { alignItems: 'center', paddingBottom: Spacing.xl, paddingTop: Spacing.xl },
+  avatar: { 
+    width: scale(70), 
+    height: scale(70), 
+    borderRadius: scale(35), 
+    backgroundColor: Colors.white, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
   avatarText: { fontSize: scale(28) },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: scale(8) },
-  name: { fontSize: scale(16), fontWeight: '700', color: Colors.white },
+  name: { fontSize: scale(18), fontWeight: '700', color: Colors.textPrimary },
   editNameBtn: { padding: scale(4) },
   editNameText: { fontSize: scale(14) },
-  email: { fontSize: scale(11), color: Colors.tabInactive, marginTop: scale(2) },
-  statsRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: Spacing.xl, marginBottom: Spacing.lg, backgroundColor: 'rgba(255,255,255,0.06)', marginHorizontal: Spacing.md, borderRadius: Radius.lg, paddingVertical: Spacing.md },
-  stat: { alignItems: 'center', flex: 1 },
-  statVal: { fontSize: scale(22), fontWeight: '800', color: Colors.white },
-  statLbl: { fontSize: scale(10), color: Colors.tabInactive, marginTop: scale(2), textAlign: 'center' },
-  divider: { width: 1, height: scale(28), backgroundColor: 'rgba(255,255,255,0.15)' },
+  email: { fontSize: scale(12), color: Colors.textSecondary, marginTop: scale(2) },
   section: { paddingHorizontal: Spacing.lg, marginBottom: Spacing.lg },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.sm },
-  sectionTitle: { fontSize: scale(12), fontWeight: '600', color: Colors.tabInactive },
-  editInterestsBtn: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: Radius.full, paddingHorizontal: scale(10), paddingVertical: scale(4) },
-  editInterestsText: { color: Colors.white, fontSize: scale(11), fontWeight: '600' },
+  sectionTitle: { fontSize: scale(13), fontWeight: '700', color: Colors.textPrimary },
+  editInterestsBtn: { 
+    backgroundColor: Colors.white, 
+    borderRadius: Radius.full, 
+    paddingHorizontal: scale(12), 
+    paddingVertical: scale(4),
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  editInterestsText: { color: Colors.textSecondary, fontSize: scale(11), fontWeight: '600' },
   tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   tag: { backgroundColor: Colors.accentLight, borderRadius: Radius.full, paddingVertical: scale(5), paddingHorizontal: scale(12) },
-  tagText: { color: Colors.accent, fontSize: scale(11), fontWeight: '600' },
-  noTags: { color: Colors.tabInactive, fontSize: scale(11) },
-  menu: { backgroundColor: 'rgba(255,255,255,0.05)', marginHorizontal: Spacing.md, borderRadius: Radius.lg, marginBottom: Spacing.lg },
-  menuItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: scale(13), paddingHorizontal: Spacing.md, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
-  menuText: { fontSize: scale(13), color: Colors.white, fontWeight: '500' },
-  menuArrow: { fontSize: scale(18), color: Colors.tabInactive },
-  logoutBtn: { backgroundColor: Colors.error, marginHorizontal: Spacing.md, borderRadius: Radius.lg, paddingVertical: scale(13), alignItems: 'center' },
-  logoutText: { color: Colors.white, fontSize: scale(14), fontWeight: '700' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { backgroundColor: Colors.primary, borderRadius: Radius.lg, padding: Spacing.lg, width: '85%', maxWidth: scale(320) },
-  modalTitle: { fontSize: scale(18), fontWeight: '700', color: Colors.white, marginBottom: Spacing.md },
-  input: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: Radius.md, padding: Spacing.md, color: Colors.white, fontSize: scale(14), marginBottom: Spacing.md },
+  tagText: { color: Colors.accentDark, fontSize: scale(11), fontWeight: '600' },
+  noTags: { color: Colors.textMuted, fontSize: scale(11) },
+  menu: { 
+    backgroundColor: Colors.white, 
+    marginHorizontal: Spacing.lg, 
+    borderRadius: Radius.lg, 
+    marginBottom: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  menuItem: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingVertical: scale(14), 
+    paddingHorizontal: Spacing.md, 
+    borderBottomWidth: 1, 
+    borderBottomColor: Colors.border 
+  },
+  menuText: { fontSize: scale(14), color: Colors.textPrimary, fontWeight: '500' },
+  menuArrow: { fontSize: scale(18), color: Colors.textMuted },
+  logoutBtn: { 
+    backgroundColor: Colors.white, 
+    marginHorizontal: Spacing.lg, 
+    borderRadius: Radius.lg, 
+    paddingVertical: scale(14), 
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.error + '40', // Very light error border
+  },
+  logoutText: { color: Colors.error, fontSize: scale(14), fontWeight: '700' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.lg, width: '85%', maxWidth: scale(320) },
+  modalTitle: { fontSize: scale(18), fontWeight: '700', color: Colors.textPrimary, marginBottom: Spacing.md },
+  input: { 
+    backgroundColor: Colors.background, 
+    borderRadius: Radius.md, 
+    padding: Spacing.md, 
+    color: Colors.textPrimary, 
+    fontSize: scale(14), 
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
   modalButtons: { flexDirection: 'row', gap: Spacing.sm },
-  cancelBtn: { flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: Radius.md, paddingVertical: scale(12), alignItems: 'center' },
-  cancelText: { color: Colors.white, fontSize: scale(14), fontWeight: '600' },
+  cancelBtn: { flex: 1, backgroundColor: Colors.background, borderRadius: Radius.md, paddingVertical: scale(12), alignItems: 'center' },
+  cancelText: { color: Colors.textSecondary, fontSize: scale(14), fontWeight: '600' },
   saveBtn: { flex: 1, backgroundColor: Colors.accent, borderRadius: Radius.md, paddingVertical: scale(12), alignItems: 'center' },
   saveText: { color: Colors.white, fontSize: scale(14), fontWeight: '700' },
 });

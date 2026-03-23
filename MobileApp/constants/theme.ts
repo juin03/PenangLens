@@ -19,6 +19,7 @@ export const Colors = {
   primary: '#1B3A4B',
   primaryDark: '#0F2634',
   primaryLight: '#2D5F73',
+  primaryMid: '#2A4F63',   // mid-tone teal — use instead of any hardcoded purple
 
   // Accent (golden yellow from Figma buttons)
   accent: '#E8A838',
@@ -47,6 +48,9 @@ export const Colors = {
 
   // Overlay
   overlay: 'rgba(0,0,0,0.5)',
+
+  // Semantic aliases
+  headerSubtitle: 'rgba(255,255,255,0.7)',   // secondary text on dark primary headers
 };
 
 export const Fonts = {
@@ -73,6 +77,31 @@ export const Radius = {
   lg: scale(14),
   xl: scale(20),
   full: 999,
+};
+
+/** Reusable shadow presets — spread into StyleSheet: { ...Shadow.md } */
+export const Shadow = {
+  sm: {
+    shadowColor: '#000' as const,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  md: {
+    shadowColor: '#000' as const,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  lg: {
+    shadowColor: '#000' as const,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 6,
+  },
 };
 
 export { SCREEN_WIDTH, SCREEN_HEIGHT };

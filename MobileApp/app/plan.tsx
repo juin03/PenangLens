@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Radius, Spacing, scale } from '@/constants/theme';
+import { Colors, Radius, Spacing, scale, Shadow } from '@/constants/theme';
 import { saveItinerary } from '@/api/client';
 import { streamItinerary } from '@/api/streaming';
 import { INTEREST_TAGS } from '@/constants/taxonomy';
@@ -82,8 +82,17 @@ export default function PlanTripScreen() {
   };
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingBottom: scale(32) + insets.bottom }]} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: Colors.background }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: insets.top + scale(8) }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerBack}>
+          <Text style={styles.headerBackText}>←</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Plan Your Trip</Text>
+        <View style={{ width: scale(36) }} />
+      </View>
+
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: scale(32) + insets.bottom }]} keyboardShouldPersistTaps="handled">
         <Text style={styles.label}>Describe Your Ideal Day</Text>
         <TextInput 
           style={styles.textArea} 
@@ -150,8 +159,8 @@ export default function PlanTripScreen() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
         
         {loading && status ? (
-          <View style={{ padding: scale(16), backgroundColor: Colors.primary + '20', borderRadius: Radius.m, marginBottom: scale(16) }}>
-            <Text style={{ color: Colors.primary, fontSize: scale(14), textAlign: 'center' }}>{status}</Text>
+          <View style={styles.statusBox}>
+            <Text style={styles.statusText}>{status}</Text>
           </View>
         ) : null}
 
@@ -175,26 +184,110 @@ export default function PlanTripScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.primary },
+  container: { flex: 1, backgroundColor: Colors.background },
+  header: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: Colors.white, 
+    paddingHorizontal: Spacing.md, 
+    paddingBottom: scale(12),
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  headerBack: { width: scale(36), height: scale(36), borderRadius: scale(18), backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' },
+  headerBackText: { fontSize: scale(20), color: Colors.primary, fontWeight: '700' },
+  headerTitle: { fontSize: scale(16), fontWeight: '700', color: Colors.textPrimary },
   content: { padding: Spacing.lg },
-  label: { fontSize: scale(12), fontWeight: '600', color: Colors.tabInactive, marginBottom: Spacing.sm, marginTop: Spacing.md },
-  textArea: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: Radius.md, padding: Spacing.md, color: Colors.white, fontSize: scale(14), minHeight: scale(80), textAlignVertical: 'top' },
+  label: { 
+    fontSize: scale(13), 
+    fontWeight: '700', 
+    color: Colors.textPrimary, 
+    marginBottom: Spacing.sm, 
+    marginTop: Spacing.md 
+  },
+  textArea: { 
+    backgroundColor: Colors.white, 
+    borderRadius: Radius.md, 
+    padding: Spacing.md, 
+    color: Colors.textPrimary, 
+    fontSize: scale(14), 
+    minHeight: scale(100), 
+    textAlignVertical: 'top',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadow.sm,
+  },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  chip: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: Radius.full, paddingVertical: scale(6), paddingHorizontal: scale(12), borderWidth: 1, borderColor: 'transparent' },
-  chipActive: { backgroundColor: Colors.accentLight, borderColor: Colors.accent },
-  chipText: { fontSize: scale(12), color: Colors.white, fontWeight: '500' },
-  chipTextActive: { color: Colors.accent, fontWeight: '700' },
+  chip: { 
+    backgroundColor: Colors.white, 
+    borderRadius: Radius.full, 
+    paddingVertical: scale(8), 
+    paddingHorizontal: scale(16), 
+    borderWidth: 1, 
+    borderColor: Colors.border,
+    ...Shadow.sm,
+  },
+  chipActive: { 
+    backgroundColor: Colors.accentLight, 
+    borderColor: Colors.accent,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  chipText: { fontSize: scale(12), color: Colors.textSecondary, fontWeight: '500' },
+  chipTextActive: { color: Colors.accentDark, fontWeight: '700' },
   modeRow: { flexDirection: 'row', gap: Spacing.sm },
-  modeBtn: { flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: Radius.md, padding: Spacing.md, alignItems: 'center', borderWidth: 2, borderColor: 'transparent' },
-  modeBtnActive: { backgroundColor: Colors.accentLight, borderColor: Colors.accent },
+  modeBtn: { 
+    flex: 1, 
+    backgroundColor: Colors.white, 
+    borderRadius: Radius.md, 
+    padding: Spacing.md, 
+    alignItems: 'center', 
+    borderWidth: 1, 
+    borderColor: Colors.border,
+    ...Shadow.sm,
+  },
+  modeBtnActive: { 
+    backgroundColor: Colors.accentLight, 
+    borderColor: Colors.accent,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   modeIcon: { fontSize: scale(24), marginBottom: scale(4) },
-  modeText: { fontSize: scale(11), color: Colors.white, fontWeight: '500' },
-  modeTextActive: { color: Colors.accent, fontWeight: '700' },
+  modeText: { fontSize: scale(11), color: Colors.textSecondary, fontWeight: '500' },
+  modeTextActive: { color: Colors.accentDark, fontWeight: '700' },
   timeRow: { flexDirection: 'row', gap: Spacing.md },
-  timeInput: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: Radius.md, padding: Spacing.md, color: Colors.white, fontSize: scale(14) },
+  timeInput: { 
+    flex: 1,
+    backgroundColor: Colors.white, 
+    borderRadius: Radius.md, 
+    padding: Spacing.md, 
+    color: Colors.textPrimary, 
+    fontSize: scale(14),
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadow.sm,
+  },
   error: { color: Colors.error, fontSize: scale(12), marginTop: Spacing.sm },
-  generateBtn: { backgroundColor: Colors.accent, borderRadius: Radius.lg, paddingVertical: scale(14), alignItems: 'center', marginTop: Spacing.xl },
+  generateBtn: { 
+    backgroundColor: Colors.accent, 
+    borderRadius: Radius.lg, 
+    paddingVertical: scale(16), 
+    alignItems: 'center', 
+    marginTop: Spacing.xl,
+    ...Shadow.md,
+  },
   generateBtnDisabled: { opacity: 0.6 },
-  generateText: { color: Colors.white, fontSize: scale(15), fontWeight: '700' },
+  generateText: { color: Colors.white, fontSize: scale(16), fontWeight: '800' },
   loadingContainer: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  statusBox: {
+    padding: scale(16),
+    backgroundColor: 'rgba(27,58,75,0.05)',
+    borderRadius: Radius.md,
+    marginTop: Spacing.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(27,58,75,0.1)',
+  },
+  statusText: { color: Colors.primary, fontSize: scale(14), textAlign: 'center', fontWeight: '500' },
 });
+

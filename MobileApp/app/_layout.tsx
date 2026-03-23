@@ -14,11 +14,11 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen
           name="plan"
-          options={{ headerShown: true, title: 'Plan Your Trip', headerTintColor: '#1B3A4B' }}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="itinerary"
-          options={{ headerShown: true, title: 'Your Itinerary', headerTintColor: '#1B3A4B' }}
+          options={{ headerShown: false }}
         />
         <Stack.Screen name="landmark/result" options={{ headerShown: false }} />
       </Stack>
