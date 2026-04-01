@@ -44,8 +44,8 @@ def verify_dataset(dataset_location):
     data['path'] = base_path
     train_path = "train/images"
     data['train'] = train_path
-    data['val'] = train_path
-    data['test'] = train_path
+    data['val'] = "valid/images"
+    data['test'] = "test/images"
     
     with open(yaml_path, 'w') as f:
         yaml.dump(data, f, sort_keys=False)
@@ -78,7 +78,12 @@ def train_full(yaml_file, device_id):
         exist_ok=True,
         verbose=True,
         workers=0,
-        plots=True
+        plots=True,
+        # Early stopping - stop if no improvement for 10 epochs
+        patience=10,
+        # Regularization - reduce overfitting
+        dropout=0.1,
+        weight_decay=0.0005,
     )
     
     best_path = os.path.join(project_path, run_name, "weights", "best.pt")

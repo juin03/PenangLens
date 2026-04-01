@@ -6,10 +6,10 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const { status, adminNotes } = await request.json();
-  const feedback = await prisma.recognitionFeedback.update({
+  const { status } = await request.json();
+  const feedback = await prisma.itineraryFeedback.update({
     where: { id },
-    data: { status, adminNotes },
+    data: { status },
   });
   return NextResponse.json({ feedback });
 }
@@ -19,6 +19,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  await prisma.recognitionFeedback.delete({ where: { id } });
+  await prisma.itineraryFeedback.delete({ where: { id } });
   return NextResponse.json({ success: true });
 }

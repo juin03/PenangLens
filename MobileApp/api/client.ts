@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const getBaseUrl = () => {
   if (__DEV__) {
-    const LAN_IP = '192.168.0.192';
+    const LAN_IP = '10.106.120.159';
     if (Platform.OS === 'web') return 'http://localhost:3000';
     return `http://${LAN_IP}:3000`;
   }
@@ -18,12 +18,8 @@ const AUTH_URL = `${BASE}/api/auth`;             // BFF auth
 const DATA_URL = `${BASE}/api`;                  // BFF data
 
 const getVisionUrl = () => {
-  if (__DEV__) {
-    const LAN_IP = '192.168.0.192';
-    if (Platform.OS === 'web') return 'http://localhost:8001';
-    return `http://${LAN_IP}:8001`;
-  }
-  return 'https://your-visionml-url.com';
+  // Proxied through Next.js (port 3000) to avoid port 8001 being blocked on university WiFi
+  return BASE;
 };
 export const VISION_BASE_URL = getVisionUrl();
 
@@ -161,6 +157,7 @@ export async function resetPassword(token: string, password: string): Promise<vo
 
 export async function saveItinerary(data: {
   name: string; originalPrompt?: string; generatedNarrative?: string; totalDuration?: number; threadId?: string;
+  stops?: { stopOrder: number; travelTimeMin?: number; name?: string }[];
 }) {
   const headers = await authHeaders();
   const res = await fetch(`${DATA_URL}/itineraries`, {
@@ -206,13 +203,16 @@ export async function saveChatMessages(itineraryId: string, messages: { role: st
 
 export async function saveScanResult(data: {
   userImageUrl?: string; userLatitude?: number; userLongitude?: number;
-  aiDetails?: any; poiId?: string;
+  annotatedImageBase64?: string; aiDetails?: any; poiId?: string;
 }) {
   const headers = await authHeaders();
   const res = await fetch(`${DATA_URL}/scans`, {
     method: 'POST', headers, body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error('Failed to save scan');
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Failed to save scan (${res.status}): ${errText}`);
+  }
   return res.json();
 }
 
@@ -251,9 +251,8 @@ export const chatWithAgent = async (request: ChatRequest) => {
 export const scanLandmark = async (imageUri: string) => {
   const formData = new FormData();
   formData.append('image', { uri: imageUri, type: 'image/jpeg', name: 'scan.jpg' } as any);
-  const res = await fetch(`${VISION_BASE_URL}/pipeline`, {
+  const res = await fetch(`${VISION_BASE_URL}/api/vision/pipeline`, {
     method: 'POST', body: formData,
-    // Do not set Content-Type header; React Native fetch sets boundary automatically
   });
   if (!res.ok) throw new Error(`Scan failed (${res.status})`);
   return res.json();

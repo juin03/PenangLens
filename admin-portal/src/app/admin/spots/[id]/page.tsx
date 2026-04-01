@@ -313,8 +313,8 @@ export default function SpotDetailPage() {
                 <div style={{ marginTop: 20 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                     <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', margin: 0 }}>Indexed Reference Images ({spot.images.length})</p>
-                    <button 
-                      className="btn btn-danger" 
+                    <button
+                      className="btn btn-danger"
                       style={{ padding: '4px 10px', fontSize: 11 }}
                       onClick={handleDeleteImages}
                       disabled={deletingImages}
@@ -323,16 +323,24 @@ export default function SpotDetailPage() {
                     </button>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                    {spot.images.map((img: any) => (
-                      <div key={img.id} style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid #e5e7eb', height: 75 }}>
-                        {/* Note: In older data, url was an ID. We handle both styles here. */}
-                        <img 
-                          src={img.url.startsWith('/') ? img.url : `/uploads/images/${img.url}.jpg`} 
-                          alt={img.filename} 
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                        />
-                      </div>
-                    ))}
+                    {spot.images.map((img: any) => {
+                      const imageId = img.imageId || img.url?.split('/').pop()?.replace('.jpg', '') || img.id;
+                      const src = img.url?.startsWith('https://') ? img.url : img.url?.startsWith('/') ? img.url : `/uploads/images/${img.url}.jpg`;
+                      return (
+                        <div key={img.id} style={{ position: 'relative', borderRadius: 6, overflow: 'hidden', border: '1px solid #e5e7eb', height: 75 }}>
+                          <img src={src} alt={img.filename} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <button
+                            onClick={async () => {
+                              if (!confirm('Delete this image and remove from vision index?')) return;
+                              const res = await fetch(`/api/admin/spots/${id}/images/${imageId}`, { method: 'DELETE' });
+                              if (res.ok) setSpot(prev => prev ? { ...prev, images: prev.images!.filter((i: any) => i.id !== img.id) } : prev);
+                              else alert('Failed to delete image.');
+                            }}
+                            style={{ position: 'absolute', top: 3, right: 3, background: 'rgba(239,68,68,0.9)', border: 'none', borderRadius: 4, color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 5px', cursor: 'pointer' }}
+                          >✕</button>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

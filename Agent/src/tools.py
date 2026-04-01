@@ -401,7 +401,7 @@ def search_places(category: str, travel_mode: str = "driving") -> str:
             # Get today's hours if available
             hours_today = weekday_text[0] if weekday_text else None
 
-            maps_link = f"https://www.google.com/maps/search/?api=1&query=&query_place_id={place_id}" if place_id else ""
+            maps_link = f"https://www.google.com/maps/search/?api=1&query={name.replace(' ', '+')}&query_place_id={place_id}" if place_id else ""
             geo = place.get("geometry", {}).get("location", {})
 
             output += f"{i}. **{name}**\n"
@@ -612,7 +612,7 @@ def get_place_details(place_name: str, location: str = "Penang, Malaysia") -> st
     price_level = details.get("price_level")
     editorial = details.get("editorial_summary", {}).get("overview", "")
     opening_hours = details.get("opening_hours", {})
-    maps_link = f"https://www.google.com/maps/search/?api=1&query=&query_place_id={place_id}"
+    maps_link = f"https://www.google.com/maps/search/?api=1&query={name.replace(' ', '+')}&query_place_id={place_id}"
 
     price_str = {0: "Free", 1: "Inexpensive", 2: "Moderate", 3: "Expensive", 4: "Very Expensive"}.get(price_level, "")
 
@@ -680,7 +680,7 @@ def search_nearby_places(
     if keyword:
         url = f"{_NEW_PLACES_BASE}/places:searchText"
         body = {
-            "textQuery": f"{keyword} near George Town Penang",
+            "textQuery": keyword,
             "locationBias": {
                 "circle": {
                     "center": {"latitude": lat, "longitude": lng},
@@ -726,7 +726,7 @@ def search_nearby_places(
             is_open = place["opening_hours"].get("open_now") if place["opening_hours"] else None
             place_id = place["place_id"]
             geo = place.get("geometry", {}).get("location", {})
-            maps_link = f"https://www.google.com/maps/search/?api=1&query=&query_place_id={place_id}" if place_id else ""
+            maps_link = f"https://www.google.com/maps/search/?api=1&query={name.replace(' ', '+')}&query_place_id={place_id}" if place_id else ""
 
             output += f"{i}. **{name}**\n"
             output += f"   Rating: {rating}★ ({n_ratings} reviews)\n"

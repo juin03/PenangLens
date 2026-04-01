@@ -72,6 +72,7 @@ model Landmark {
   creator User?         @relation("LandmarkCreator", fields: [createdBy], references: [id])
   tags    LandmarkTag[]
   pois    PointOfInterest[]
+  images  PoiImage[]
 
   @@map("landmarks")
 }
@@ -117,10 +118,12 @@ model PoiImage {
   caption        String?
   createdAt      DateTime @default(now()) @map("created_at")
   createdBy      String?  @map("created_by")
-  poiId          String   @map("poi_id")
+  poiId          String?  @map("poi_id")
+  landmarkId     String?  @map("landmark_id")
 
-  creator User?           @relation("ImageCreator", fields: [createdBy], references: [id])
-  poi     PointOfInterest @relation(fields: [poiId], references: [id], onDelete: Cascade)
+  creator  User?            @relation("ImageCreator", fields: [createdBy], references: [id])
+  poi      PointOfInterest? @relation(fields: [poiId], references: [id], onDelete: Cascade)
+  landmark Landmark?        @relation(fields: [landmarkId], references: [id], onDelete: Cascade)
 
   @@map("poi_images")
 }
@@ -225,6 +228,7 @@ model ItineraryFeedback {
   id          String    @id @default(uuid()) @map("itinerary_feedback_id")
   rating      Int       // 1–5 stars
   comment     String?   @db.Text
+  status      String    @default("pending") // 'pending' | 'reviewed'
   createdAt   DateTime  @default(now()) @map("created_at")
   itineraryId String    @map("itinerary_id")
   userId      String?   @map("user_id")

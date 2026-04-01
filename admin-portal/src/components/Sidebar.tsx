@@ -6,7 +6,10 @@ import { usePathname, useRouter } from 'next/navigation';
 const navItems = [
   { href: '/admin/spots', label: 'Content Mgmt', icon: '🏛️' },
   { href: '/admin/map', label: 'Penang Map', icon: '🗺️' },
+  { href: '/admin/itineraries', label: 'Itinerary Review', icon: '🗓️' },
   { href: '/admin/analytics', label: 'Analytics', icon: '📊' },
+  { href: '/admin/recognition', label: 'Scan Feedback', icon: '🔍' },
+  { href: '/admin/chat-feedback', label: 'Chat Feedback', icon: '💬' },
   { href: '/admin/users', label: 'User Mgmt', icon: '👥' },
   { href: '/admin/system', label: 'System Admin', icon: '⚙️' },
 ];

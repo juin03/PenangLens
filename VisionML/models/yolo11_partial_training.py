@@ -11,7 +11,7 @@ DATASET_LOCATION = r"C:\Users\User\Desktop\USM\Y4\FYP\PenangLens\VisionML\data_p
 MODEL_WEIGHTS = "yolo11s.pt" 
 EPOCHS = 50
 IMAGE_SIZE = 640
-BATCH_SIZE = 8
+BATCH_SIZE = 16
 
 # Partial Fine-tuning: Freeze the backbone
 # For YOLO11s, freezing 10-12 layers usually covers the backbone.
@@ -39,8 +39,8 @@ def verify_dataset(dataset_location):
     base_path = dataset_location.replace("\\", "/")
     data['path'] = base_path
     data['train'] = "train/images"
-    data['val'] = "train/images"
-    data['test'] = "train/images"
+    data['val'] = "valid/images"
+    data['test'] = "test/images"
     
     with open(yaml_path, 'w') as f:
         yaml.dump(data, f, sort_keys=False)
@@ -74,7 +74,12 @@ def train_partial(yaml_file, device_id):
         exist_ok=True,
         verbose=True,
         workers=0,
-        plots=True
+        plots=True,
+        # Early stopping - stop if no improvement for 10 epochs
+        patience=10,
+        # Regularization - reduce overfitting
+        dropout=0.15,
+        weight_decay=0.0005,
     )
     
     best_path = os.path.join(project_path, run_name, "weights", "best.pt")

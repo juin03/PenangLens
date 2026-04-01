@@ -13,8 +13,11 @@ from dotenv import load_dotenv
 # ================= CONFIGURATION =================
 load_dotenv()
 
-# YOLO11 Fine-tuned model
-FINETUNED_MODEL_PATH = "models/results/partial_finetuning/weights/best.pt"
+# YOLO11 Fine-tuned model (use env var for deployment, fallback to local path for dev)
+FINETUNED_MODEL_PATH = os.getenv(
+    "YOLO_MODEL_PATH",
+    r"C:\Users\User\Desktop\USM\Y4\FYP\runs\detect\results\partial_finetuning\weights\best.pt"
+)
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # DINOv2 for coarse identification (lazy loaded)
@@ -30,13 +33,31 @@ INDEX_NAME = "penanglens-poc-index"
 DINO_CONFIDENCE_THRESHOLD = float(os.getenv("DINO_CONFIDENCE_THRESHOLD", "0.6"))
 
 # POI → class mapping (which YOLO classes are valid for each POI)
-POI_CLASS_MAP = {
-    "kekloksi": ["Chinese Octagonal Base", "Thai Middle Tier", "Burmese Spire", "pagoda", "temple"],
-    "penanghill": ["funicular train", "railway track", "stone bridge", "forest canopy", "lamppost"],
-    "fortcornwallis": ["cannon", "fortress wall", "watchtower", "flagpole"],
-    "guanyintemple": ["statue", "buddha statue", "guanyin statue", "incense burner", "calligraphy"],
-    "clanjettie": ["wooden jetty", "stilted house", "fishing boat", "temple"],
+# This prevents false detections like "onion_dome" appearing in Kek Lok Si
+# Keys include both landmark names AND individual POI names
+_LANDMARK_CLASSES = {
+    # Fort Cornwallis
+    "fort_cornwallis": ["fort_cornwallis_chapel", "fort_cornwallis_lighthouse", "seri_rambai_cannon", "statue_francis_light"],
+    # Guan Yin Temple
+    "guan_yin_teng": ["dragon_pillar", "guan_yin_statue", "holy_vase", "lotus_base", "three_tiered_pavilion_roof"],
+    # Kapitan Keling Mosque
+    "kapitan_keling_mosque": ["arched_arcade", "arched_gateway", "crescent_finial", "guldastas", "minaret", "onion_dome"],
+    # Khoo Kongsi
+    "khoo_kongsi": ["guardian_lion", "main_ridge", "swallowtail_roof"],
+    # Pagoda Rama VI (Thai temple)
+    "pagoda_rama_vi": ["burmese_spire", "chinese_base", "thai_tier"],
+    # Queen Victoria Memorial Clock Tower
+    "queen_victoria_memorial_clock": ["balcony_tier", "clock_face", "golden_cupola", "octagonal_base", "pinang_sculpture"],
+    # St. George's Church
+    "st_george_church": ["church_steeple", "dome_pavilion", "front_portico", "tower_clock"],
 }
+
+# Build POI_CLASS_MAP: each POI name also maps to its parent landmark's classes
+POI_CLASS_MAP = dict(_LANDMARK_CLASSES)
+# Map each class name back to its landmark (so POI names like "seri_rambai_cannon" use fort_cornwallis classes)
+for landmark, classes in _LANDMARK_CLASSES.items():
+    for cls in classes:
+        POI_CLASS_MAP[cls] = classes
 
 # Initialize App
 app = FastAPI(title="PenangLens VisionML", version="2.0")
@@ -119,6 +140,7 @@ def identify_poi(pil_image: Image.Image) -> dict | None:
 
         return {
             "poi_id": top_result["poi_id"],
+            "poi_name": top_result.get("poi_name"),
             "score": score,
             "filename": top_result.get("filename", ""),
         }
@@ -138,26 +160,57 @@ def run_yolo_detection(pil_image: Image.Image, poi_id: str | None = None) -> tup
     )
     result = results[0]
 
-    # Extract detections
+    PALETTE = [
+        (255, 99, 71), (30, 144, 255), (50, 205, 50), (255, 215, 0),
+        (186, 85, 211), (255, 165, 0), (0, 206, 209), (255, 20, 147),
+        (127, 255, 0), (255, 69, 0), (100, 149, 237), (144, 238, 144),
+        (255, 182, 193), (173, 216, 230), (240, 230, 140), (221, 160, 221),
+        (152, 251, 152), (135, 206, 235), (255, 160, 122), (176, 196, 222),
+        (255, 228, 181), (144, 238, 144), (175, 238, 238), (255, 222, 173),
+        (216, 191, 216), (245, 245, 220), (230, 230, 250), (255, 240, 245),
+        (240, 255, 240), (255, 250, 205),
+    ]
+
+    # Extract detections with normalised bbox coords
     detections = []
+    img_w, img_h = pil_image.size
     if result.boxes is not None:
         boxes = result.boxes.cpu()
         for box in boxes:
             cls_idx = int(box.cls.item())
             conf = float(box.conf.item())
             class_name = result.names[cls_idx]
-            detections.append({"class": class_name, "confidence": conf})
+            xyxy = box.xyxy[0].tolist()
+            detections.append({
+                "class": class_name,
+                "confidence": conf,
+                "bbox": {
+                    "x1": xyxy[0] / img_w, "y1": xyxy[1] / img_h,
+                    "x2": xyxy[2] / img_w, "y2": xyxy[3] / img_h,
+                },
+                "color_idx": cls_idx % len(PALETTE),
+            })
 
     # Sequential validation: filter by POI-specific class list
     if poi_id and poi_id in POI_CLASS_MAP:
         valid_classes = [c.lower() for c in POI_CLASS_MAP[poi_id]]
         detections = [d for d in detections if d["class"].lower() in valid_classes]
 
-    # Generate annotated image
-    result_plot_np = result.plot()
-    result_image = Image.fromarray(result_plot_np[..., ::-1])
+    # Draw clean coloured bounding boxes (no labels)
+    from PIL import ImageDraw
+    annotated = pil_image.copy()
+    draw = ImageDraw.Draw(annotated)
+    for det in detections:
+        color = PALETTE[det["color_idx"]]
+        b = det["bbox"]
+        x1, y1 = b["x1"] * img_w, b["y1"] * img_h
+        x2, y2 = b["x2"] * img_w, b["y2"] * img_h
+        lw = max(2, int(min(img_w, img_h) * 0.004))
+        for t in range(lw):
+            draw.rectangle([x1 - t, y1 - t, x2 + t, y2 + t], outline=color)
+
     buffered = io.BytesIO()
-    result_image.save(buffered, format="JPEG", quality=80)
+    annotated.save(buffered, format="JPEG", quality=85)
     img_b64 = base64.b64encode(buffered.getvalue()).decode()
 
     return detections, f"data:image/jpeg;base64,{img_b64}"
@@ -254,23 +307,62 @@ async def full_pipeline(image: UploadFile = File(...)):
         poi_result = identify_poi(pil_image)
         poi_id = poi_result["poi_id"] if poi_result else None
         poi_score = poi_result["score"] if poi_result else 0.0
+        poi_name = poi_result.get("poi_name") if poi_result else None  # From Azure Search index
+        parent_landmark_name = None
         t_dino = time.time()
-        print(f"  ⏱️ DINOv2 identify: {t_dino - t_read:.2f}s → POI={poi_id} ({poi_score:.3f})")
+        print(f"  ⏱️ DINOv2 identify: {t_dino - t_read:.2f}s → POI={poi_id}, name={poi_name} ({poi_score:.3f})")
 
-        # Stage 2: YOLO11 Detection (with POI-specific filtering)
-        detections, image_url = run_yolo_detection(pil_image, poi_id)
+        # Resolve name from admin portal if not in index (for old indexed images)
+        filter_key = None
+        if poi_id and not poi_name:
+            try:
+                import urllib.request, json as _json
+                # Try multiple possible admin portal URLs
+                admin_urls = [
+                    os.getenv("ADMIN_PORTAL_URL"),
+                    "http://127.0.0.1:3000",
+                    "http://localhost:3000",
+                    "http://host.docker.internal:3000",  # For Docker
+                ]
+                for admin_url in admin_urls:
+                    if not admin_url:
+                        continue
+                    try:
+                        req = urllib.request.Request(
+                            f"{admin_url}/api/admin/spots/{poi_id}", 
+                            headers={"Content-Type": "application/json"}
+                        )
+                        with urllib.request.urlopen(req, timeout=3) as r:
+                            data = _json.loads(r.read())
+                            spot = data.get("spot", {})
+                            poi_name = spot.get("name")
+                            # If it's a POI, get parent landmark name
+                            if spot.get("type") == "poi" and spot.get("landmark"):
+                                parent_landmark_name = spot["landmark"].get("name")
+                            if poi_name:
+                                print(f"  ✅ Resolved POI name from API: {poi_name}")
+                                break
+                    except Exception:
+                        continue
+            except Exception as e:
+                print(f"  ⚠️ Could not resolve POI name: {e}")
+
+        # Build filter key from name for YOLO class filtering
+        if poi_name:
+            filter_key = poi_name.lower().replace(" ", "_").replace("'", "").replace("-", "_")
+
+        # Stage 2: YOLO11 Detection (with POI-specific filtering using landmark name)
+        detections, image_url = run_yolo_detection(pil_image, filter_key)
         t_yolo = time.time()
-        print(f"  ⏱️ YOLO11 detect: {t_yolo - t_dino:.2f}s → {len(detections)} detections")
+        print(f"  ⏱️ YOLO11 detect: {t_yolo - t_dino:.2f}s → {len(detections)} detections (filter: {filter_key})")
         print(f"  ⏱️ TOTAL pipeline: {t_yolo - t_start:.2f}s")
-
-        # Build human-readable POI name
-        poi_name = poi_id.replace("_", " ").replace("-", " ").title() if poi_id else "Unknown Landmark"
 
         return JSONResponse({
             "success": True,
             "pipeline": True,
             "poi_id": poi_id,
             "poi_name": poi_name,
+            "parent_landmark": parent_landmark_name,
             "poi_confidence": poi_score,
             "image_url": image_url,
             "count": len(detections),
@@ -296,4 +388,4 @@ if __name__ == "__main__":
     print(f"📡 Endpoints: /detect (legacy), /pipeline (full), /health")
     print("=" * 60 + "\n")
 
-    uvicorn.run(app, host="127.0.0.1", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

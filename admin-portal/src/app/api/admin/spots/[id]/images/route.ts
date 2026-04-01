@@ -12,10 +12,11 @@ const BLOB_CONN_STR = process.env.AZURE_STORAGE_CONNECTION_STRING || '';
 const BLOB_CONTAINER = process.env.AZURE_STORAGE_CONTAINER_NAME || 'images';
 
 /** Upsert a DINOv2 vector into the Azure AI Search vision index */
-async function upsertToVisionIndex(spotId: string, imageId: string, vector: number[]) {
+async function upsertToVisionIndex(spotId: string, spotName: string, imageId: string, vector: number[]) {
   const doc = {
     id:          imageId,
     poi_id:      spotId,
+    poi_name:    spotName,
     filename:    `${imageId}.jpg`,
     imageVector: vector,
   };
@@ -59,6 +60,24 @@ export async function POST(
       return NextResponse.json({ error: 'No image provided' }, { status: 400 });
     }
 
+    // Get spot name first (needed for Azure Search index)
+    // For POIs, include parent landmark name: "Fort Cornwallis - Seri Rambai Cannon"
+    const poi = await prisma.pointOfInterest.findUnique({ 
+      where: { id: spotId }, 
+      select: { name: true, landmark: { select: { name: true } } } 
+    });
+    const landmark = poi ? null : await prisma.landmark.findUnique({ where: { id: spotId }, select: { name: true } });
+    
+    let spotName: string;
+    if (poi) {
+      // POI: "Landmark Name - POI Name"
+      spotName = poi.landmark?.name ? `${poi.landmark.name} - ${poi.name}` : poi.name;
+    } else if (landmark) {
+      spotName = landmark.name;
+    } else {
+      spotName = 'Unknown';
+    }
+
     // Forward image to VisionML /embed for DINOv2 embedding
     const vmlForm = new FormData();
     const blob    = new Blob([await file.arrayBuffer()], { type: file.type });
@@ -73,7 +92,7 @@ export async function POST(
 
     // Upsert into Azure AI Search vision index (penanglens-poc-index)
     const imageId = `${spotId}_${Date.now()}`;
-    await upsertToVisionIndex(spotId, imageId, vector);
+    await upsertToVisionIndex(spotId, spotName, imageId, vector);
 
     // Upload the actual file to Azure Blob Storage
     if (!BLOB_CONN_STR) {
@@ -92,16 +111,15 @@ export async function POST(
 
     const publicUrl = blockBlobClient.url;
 
-    // Try POI first, then landmark — both can hold images
-    try {
-      const poi = await prisma.pointOfInterest.findUnique({ where: { id: spotId } });
-      if (poi) {
-        await prisma.poiImage.create({
-          data: { poiId: spotId, imageUrl: publicUrl, caption: file.name, isForEmbedding: true },
-        });
-      }
-    } catch {
-      // poiImage table may not exist yet — vision index is the source of truth
+    // Save image record to DB - check if POI or Landmark
+    if (poi) {
+      await prisma.poiImage.create({
+        data: { poiId: spotId, imageUrl: publicUrl, caption: file.name, isForEmbedding: true },
+      });
+    } else if (landmark) {
+      await prisma.poiImage.create({
+        data: { landmarkId: spotId, imageUrl: publicUrl, caption: file.name, isForEmbedding: true },
+      });
     }
 
     return NextResponse.json({
@@ -124,10 +142,28 @@ export async function DELETE(
 ) {
   const { id: spotId } = await params;
   try {
+    // Try POI first, then Landmark
+    let images: any[] = [];
+    let isPoi = false;
+    let isLandmark = false;
+    
     const poi = await prisma.pointOfInterest.findUnique({ where: { id: spotId }, include: { images: true }});
-    if (!poi) return NextResponse.json({ error: 'POI not found' }, { status: 404 });
+    if (poi) {
+      images = poi.images || [];
+      isPoi = true;
+    } else {
+      // Check if it's a Landmark - get direct images
+      const landmark = await prisma.landmark.findUnique({ 
+        where: { id: spotId }, 
+        include: { images: true }
+      });
+      if (!landmark) {
+        return NextResponse.json({ error: 'Spot not found' }, { status: 404 });
+      }
+      images = landmark.images || [];
+      isLandmark = true;
+    }
 
-    const images = (poi as any).images || [];
     if (images.length === 0) {
       return NextResponse.json({ success: true, message: 'No images to delete' });
     }
@@ -135,8 +171,14 @@ export async function DELETE(
     // 1. Delete from Azure Search using original imageId (extracted from url or filename)
     const imageIds = images.map((img: any) => {
       const url = img.imageUrl || img.url;
-      const match = url?.match(/\/uploads\/images\/(.+)\.jpg$/);
-      return match ? match[1] : url; // Fallback for old ones where url was just the id
+      // Match Azure Blob URL: https://...blob.core.windows.net/images/{imageId}.jpg
+      const blobMatch = url?.match(/\/images\/([^\/]+)\.jpg$/);
+      if (blobMatch) return blobMatch[1];
+      // Match old local URL: /uploads/images/{imageId}.jpg
+      const localMatch = url?.match(/\/uploads\/images\/(.+)\.jpg$/);
+      if (localMatch) return localMatch[1];
+      // Skip if we can't extract a valid ID (don't use full URL as key)
+      return null;
     }).filter(Boolean);
 
     await deleteFromVisionIndex(imageIds);
@@ -153,7 +195,11 @@ export async function DELETE(
     }
 
     // 3. Delete from DB
-    await prisma.poiImage.deleteMany({ where: { poiId: spotId }});
+    if (isPoi) {
+      await prisma.poiImage.deleteMany({ where: { poiId: spotId }});
+    } else if (isLandmark) {
+      await prisma.poiImage.deleteMany({ where: { landmarkId: spotId }});
+    }
 
     return NextResponse.json({ success: true, message: `Deleted ${images.length} images` });
   } catch (error: any) {

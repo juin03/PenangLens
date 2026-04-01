@@ -21,11 +21,33 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { userImageUrl, userLatitude, userLongitude, aiDetails, poiId } = body;
+    const { userImageUrl, annotatedImageBase64, userLatitude, userLongitude, aiDetails, poiId } = body;
+
+    // Upload annotated image (with bounding boxes) to Blob Storage
+    let annotatedImageUrl: string | undefined;
+    if (annotatedImageBase64) {
+      try {
+        const { BlobServiceClient } = await import('@azure/storage-blob');
+        const connStr = process.env.AZURE_STORAGE_CONNECTION_STRING;
+        if (connStr) {
+          const blobService = BlobServiceClient.fromConnectionString(connStr);
+          const container = blobService.getContainerClient(process.env.AZURE_STORAGE_CONTAINER_NAME || 'images');
+          const blobName = `scans/${user.id}_${Date.now()}.jpg`;
+          const blockBlob = container.getBlockBlobClient(blobName);
+
+          const base64Data = annotatedImageBase64.replace(/^data:image\/\w+;base64,/, '');
+          const buffer = Buffer.from(base64Data, 'base64');
+          await blockBlob.uploadData(buffer, { blobHTTPHeaders: { blobContentType: 'image/jpeg' } });
+          annotatedImageUrl = blockBlob.url;
+        }
+      } catch (e) {
+        console.warn('Failed to upload annotated image:', e);
+      }
+    }
 
     const scan = await prisma.recognitionHistory.create({
       data: {
-        userImageUrl,
+        userImageUrl: annotatedImageUrl || userImageUrl,
         userLatitude,
         userLongitude,
         aiDetails,

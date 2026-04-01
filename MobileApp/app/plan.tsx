@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -6,6 +6,8 @@ import { Colors, Radius, Spacing, scale, Shadow } from '@/constants/theme';
 import { saveItinerary } from '@/api/client';
 import { streamItinerary } from '@/api/streaming';
 import { INTEREST_TAGS } from '@/constants/taxonomy';
+
+const MAPS_API_KEY = '***REMOVED_KEY***';
 
 export default function PlanTripScreen() {
   const router = useRouter();
@@ -15,6 +17,36 @@ export default function PlanTripScreen() {
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('17:00');
   const [travelMode, setTravelMode] = useState<'walking' | 'driving' | 'transit'>('walking');
+  const [startLocation, setStartLocation] = useState('');
+  const [locationInput, setLocationInput] = useState('');
+  const [locationSuggestions, setLocationSuggestions] = useState<{ description: string; place_id: string }[]>([]);
+  const locationDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchSuggestions = (text: string) => {
+    setLocationInput(text);
+    if (locationDebounce.current) clearTimeout(locationDebounce.current);
+    if (text.length < 2) { setLocationSuggestions([]); return; }
+    locationDebounce.current = setTimeout(async () => {
+      try {
+        const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(text)}&components=country:my&key=${MAPS_API_KEY}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        setLocationSuggestions(data.predictions?.slice(0, 5) ?? []);
+      } catch { setLocationSuggestions([]); }
+    }, 300);
+  };
+
+  const selectLocation = async (item: { description: string; place_id: string }) => {
+    setLocationInput(item.description);
+    setLocationSuggestions([]);
+    try {
+      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${item.place_id}&fields=geometry&key=${MAPS_API_KEY}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const loc = data.result?.geometry?.location;
+      setStartLocation(loc ? `${loc.lat},${loc.lng}` : item.description);
+    } catch { setStartLocation(item.description); }
+  };
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -32,7 +64,7 @@ export default function PlanTripScreen() {
         interests: selectedInterests,
         start_time: startTime,
         end_time: endTime,
-        start_location: 'George Town, Penang',
+        start_location: startLocation.trim() || 'George Town, Penang',
         travel_mode: travelMode,
       });
 
@@ -52,6 +84,11 @@ export default function PlanTripScreen() {
               generatedNarrative: JSON.stringify(structured),
               totalDuration: structured?.total_duration_min,
               threadId: result.thread_id,
+              stops: structured?.stops?.map((s: any, i: number) => ({
+                stopOrder: i + 1,
+                travelTimeMin: s.travel_to_next?.duration_min,
+                name: s.name,
+              })),
             });
             itineraryId = saved?.itinerary?.id;
           } catch {}
@@ -93,6 +130,25 @@ export default function PlanTripScreen() {
       </View>
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: scale(32) + insets.bottom }]} keyboardShouldPersistTaps="handled">
+        <Text style={styles.label}>Starting Location <Text style={{ color: Colors.tabInactive, fontWeight: '400' }}>(optional)</Text></Text>
+        <TextInput
+          style={styles.timeInput}
+          value={locationInput}
+          onChangeText={fetchSuggestions}
+          placeholder="Default: George Town, Penang"
+          placeholderTextColor={Colors.tabInactive}
+        />
+        {locationSuggestions.length > 0 && (
+          <View style={{ borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, marginTop: -8, marginBottom: 8, backgroundColor: Colors.white }}>
+            {locationSuggestions.map((item, i) => (
+              <TouchableOpacity key={item.place_id} onPress={() => selectLocation(item)}
+                style={{ padding: scale(10), borderBottomWidth: i < locationSuggestions.length - 1 ? 1 : 0, borderBottomColor: Colors.border }}>
+                <Text style={{ fontSize: scale(13), color: Colors.textPrimary }}>{item.description}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
         <Text style={styles.label}>Describe Your Ideal Day</Text>
         <TextInput 
           style={styles.textArea} 
@@ -157,12 +213,6 @@ export default function PlanTripScreen() {
         </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        
-        {loading && status ? (
-          <View style={styles.statusBox}>
-            <Text style={styles.statusText}>{status}</Text>
-          </View>
-        ) : null}
 
         <TouchableOpacity 
           style={[styles.generateBtn, loading && styles.generateBtnDisabled]} 

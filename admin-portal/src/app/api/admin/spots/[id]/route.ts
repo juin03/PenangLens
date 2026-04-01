@@ -54,10 +54,29 @@ export async function GET(
           },
     });
     if (landmark) {
-      // Collect all images from child POIs so mobile can show a hero image
-      const allImages = landmark.pois.flatMap(poi =>
-        poi.images.map(img => ({ id: img.id, url: img.imageUrl, filename: img.caption || 'image.jpg' }))
+      // Collect images from child POIs
+      const poiImages = landmark.pois.flatMap(poi =>
+        poi.images.map(img => ({ id: img.id, imageId: img.id, url: img.imageUrl, filename: img.caption || 'image.jpg' }))
       );
+      // Also fetch indexed images from Azure AI Search for this landmark
+      let searchImages: { id: string; imageId: string; url: string; filename: string }[] = [];
+      try {
+        const AZURE_ENDPOINT = process.env.AZURE_SEARCH_ENDPOINT || '';
+        const AZURE_KEY = process.env.AZURE_SEARCH_KEY || '';
+        const searchUrl = `${AZURE_ENDPOINT}/indexes/penanglens-poc-index/docs?api-version=2023-11-01&$filter=poi_id eq '${id}'&$select=id,filename&$top=100`;
+        const searchRes = await fetch(searchUrl, { headers: { 'api-key': AZURE_KEY } });
+        if (searchRes.ok) {
+          const searchData = await searchRes.json() as any;
+          const BLOB_BASE = `https://penanglensstorage.blob.core.windows.net/images`;
+          searchImages = (searchData.value || []).map((doc: any) => ({
+            id: doc.id,
+            imageId: doc.id,
+            url: `${BLOB_BASE}/${doc.id}.jpg`,
+            filename: doc.filename || `${doc.id}.jpg`,
+          }));
+        }
+      } catch {}
+      const allImages = [...poiImages, ...searchImages];
       return NextResponse.json({
         spot: {
           ...landmark,
