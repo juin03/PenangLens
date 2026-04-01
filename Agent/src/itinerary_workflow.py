@@ -26,6 +26,7 @@ from .tools import (
     _find_place_id,
     _get_place_details_by_id,
     create_route_url,
+    search_nearby_places,
 )
 from .models import ItineraryData, ItineraryStop, TravelSegment
 
@@ -79,6 +80,17 @@ def _create_llm() -> AzureChatOpenAI:
         azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
         azure_deployment=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "gpt-4o-mini"),
+        api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview"),
+        temperature=0.3,
+    )
+
+
+def _create_reasoning_llm() -> AzureChatOpenAI:
+    """Stronger model for planning and scheduling tasks."""
+    return AzureChatOpenAI(
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+        azure_deployment=os.getenv("AZURE_OPENAI_REASONING_DEPLOYMENT", "gpt-5.4-mini"),
         api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview"),
         temperature=0.3,
     )
@@ -176,436 +188,302 @@ Return JSON only:
 
 
 # ---------------------------------------------------------------------------
-# Node 1: Search
+# Node 1: plan_node — LLM plans the itinerary using its Penang knowledge
 # ---------------------------------------------------------------------------
 
-def _parse_blocks(raw: str, category: str, extra: dict = {}) -> list[dict]:
-    """Parse text output from search_places/search_nearby_places into place dicts."""
-    results = []
-    for block in raw.strip().split("\n\n"):
-        if "Google Maps:" not in block:
-            continue
-        place = {"category": category, **extra}
-        for line in block.split("\n"):
-            line = line.strip()
-            if line and line[0].isdigit() and "**" in line:
-                place["name"] = line.split("**")[1]
-            elif line.startswith("Address:"):
-                place["address"] = line.replace("Address:", "").strip()
-            elif line.startswith("Rating:"):
-                try:
-                    place["rating"] = float(line.split("★")[0].replace("Rating:", "").strip())
-                    place["review_count"] = int(line.split("(")[1].split(" ")[0])
-                except Exception:
-                    pass
-            elif line.startswith("Status:"):
-                place["is_open"] = "OPEN" in line
-            elif line.startswith("Estimated visit duration:"):
-                try:
-                    place["duration_min"] = int(line.split(":")[1].strip().split(" ")[0])
-                except Exception:
-                    place["duration_min"] = 45
-            elif line.startswith("LatLng:"):
-                try:
-                    lat_s, lng_s = line.replace("LatLng:", "").strip().split(",")
-                    place["lat"], place["lng"] = float(lat_s), float(lng_s)
-                except Exception:
-                    pass
-            elif line.startswith("PhotoRef:"):
-                place["photo_reference"] = line.replace("PhotoRef:", "").strip()
-            elif line.startswith("Hours:"):
-                place["hours"] = line.replace("Hours:", "").strip()
-            elif line.startswith("Editorial:"):
-                place["editorial"] = line.replace("Editorial:", "").strip()
-            elif line.startswith("About:"):
-                place["about"] = line.replace("About:", "").strip()
-            elif "Google Maps:" in line:
-                url = line.split("Google Maps:")[-1].strip()
-                place["google_maps_url"] = url
-                if "query_place_id=" in url:
-                    place["place_id"] = url.split("query_place_id=")[-1]
-                elif "place_id:" in url:
-                    place["place_id"] = url.split("place_id:")[-1]
-        if place.get("name") and place.get("place_id"):
-            results.append(place)
-    return results
-
-
-def search_node(state: WorkflowState) -> dict:
-    """Search Google Places for each interest category. Deduplicates by place_id."""
-    clear_search_cache()
-    travel_mode = state["travel_mode"]
-    interests = state["interests"] if state.get("interests") else ["heritage", "food", "culture"]
-    location_anchor = state.get("start_location", "George Town, Penang")
-    cuisine_hints = state.get("cuisine_hints", [])
-
-    from .tools import search_nearby_places, search_places
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    # Build all search tasks
-    FOOD_INTERESTS = {"food", "restaurant", "restaurants", "dining", "cafe", "hawker", "street food"}
-    radius = 15000 if travel_mode == "driving" else 5000
-    tasks = {}
-    for interest in interests:
-        is_food = interest.lower() in FOOD_INTERESTS
-        place_type = "restaurant" if is_food else "tourist_attraction"
-        tasks[f"interest:{interest}"] = lambda i=interest, pt=place_type: (
-            f"interest:{i}",
-            _parse_blocks(
-                search_nearby_places(location=location_anchor, place_type=pt, keyword=i, radius=radius),
-                category=i
-            )
-        )
-    for cuisine in cuisine_hints:
-        tasks[f"cuisine:{cuisine}"] = lambda c=cuisine: (
-            f"cuisine:{c}",
-            _parse_blocks(
-                search_nearby_places(location=location_anchor, place_type="restaurant", keyword=c, radius=radius),
-                category="food",
-                extra={"cuisine_hint": c}
-            )
-        )
-
-    # Run all searches in parallel
-    all_results: list[dict] = []
-    with ThreadPoolExecutor(max_workers=min(len(tasks), 6)) as executor:
-        futures = {executor.submit(fn): label for label, fn in tasks.items()}
-        for future in as_completed(futures):
-            label = futures[future]
-            try:
-                _, places = future.result()
-                logger.info(f"search_node: {label} returned {len(places)} places")
-                all_results.extend(places)
-            except Exception as e:
-                logger.error(f"search_node: {label} failed: {e}", exc_info=True)
-
-    # Deduplicate by place_id
-    seen_ids = set()
-    candidates = []
-    for place in all_results:
-        pid = place.get("place_id")
-        if pid and pid not in seen_ids:
-            seen_ids.add(pid)
-            candidates.append(place)
-
-    # Prepend pinned candidates (force-included)
-    pinned = state.get("pinned_candidates", [])
-    for p in pinned:
-        if p.get("place_id") not in seen_ids:
-            seen_ids.add(p["place_id"])
-            candidates.insert(0, p)
-
-    logger.info(f"search_node: found {len(candidates)} unique candidates ({len(pinned)} pinned)")
-    return {"candidates": candidates}
-
-
-# ---------------------------------------------------------------------------
-# Node 2: Select (LLM)
-# ---------------------------------------------------------------------------
-
-def select_node(state: WorkflowState) -> dict:
-    """LLM picks the best stops from candidates given time budget and constraints."""
-    candidates = state["candidates"]
+def plan_node(state: WorkflowState) -> dict:
+    """LLM picks places to visit based on its knowledge of Penang."""
     budget = _budget_minutes(state["start_time"], state["end_time"])
     travel_mode = state["travel_mode"]
     description = state["description"]
     interests = state["interests"]
+    start_location = state.get("start_location", "George Town, Penang")
     start_date = state.get("start_date", "")
+    pinned = state.get("pinned_candidates", [])
+    cuisine_hints = state.get("cuisine_hints", [])
 
-    if not candidates:
-        return {"error": "No places found for the given interests.", "selected_stops": []}
-
-    # For walking mode, hard-filter candidates by distance from start_location
-    start_loc = state.get("start_location", "")
-    start_lat, start_lng = None, None
+    # Reverse geocode coordinates to a readable name for the LLM
+    location_name = start_location
     try:
-        parts = start_loc.split(",")
-        start_lat, start_lng = float(parts[0]), float(parts[1])
+        parts = start_location.split(",")
+        lat, lng = float(parts[0].strip()), float(parts[1].strip())
+        api_key = os.getenv("GOOGLE_MAPS_API_KEY")
+        if api_key:
+            import requests as _req
+            resp = _req.get("https://maps.googleapis.com/maps/api/geocode/json",
+                            params={"latlng": f"{lat},{lng}", "key": api_key}, timeout=5)
+            results = resp.json().get("results", [])
+            if results:
+                # Pick the most useful name (neighborhood/locality level)
+                for r in results:
+                    types = r.get("types", [])
+                    if any(t in types for t in ["neighborhood", "sublocality", "locality"]):
+                        location_name = r["formatted_address"].split(",")[0]
+                        break
+                if location_name == start_location:
+                    location_name = results[0]["formatted_address"].split(",")[0]
+                logger.info(f"plan_node: resolved location → {location_name}")
     except (ValueError, IndexError):
         pass
 
-    if travel_mode == "walking" and start_lat and start_lng:
-        max_km = 3.0
-        filtered = []
-        dropped_categories = {}
-        for c in candidates:
-            clat, clng = c.get("lat"), c.get("lng")
-            if clat and clng:
-                dist = _haversine(start_lat, start_lng, clat, clng)
-                if dist <= max_km:
-                    filtered.append(c)
-                else:
-                    dropped_categories[c.get("category", "?")] = dropped_categories.get(c.get("category", "?"), 0) + 1
-            else:
-                filtered.append(c)  # keep if no coords
-        if dropped_categories:
-            logger.info(f"select_node: walking filter dropped by category: {dropped_categories}")
-        if filtered:
-            logger.info(f"select_node: walking filter kept {len(filtered)}/{len(candidates)} candidates within {max_km}km")
-            # If no food candidates survived, do a targeted restaurant search nearby
-            food_cats = {"food", "restaurant", "dining", "cafe", "hawker"}
-            has_food = any(c.get("category", "").lower() in food_cats for c in filtered)
-            if not has_food:
-                logger.info("select_node: no food candidates after filter, searching restaurants nearby")
-                from .tools import search_nearby_places as _snp
-                raw_food = _snp(location=f"{start_lat},{start_lng}", place_type="restaurant", radius=2000)
-                food_places = _parse_blocks(raw_food, category="Food")
-                for fp in food_places:
-                    flat, flng = fp.get("lat"), fp.get("lng")
-                    if flat and flng and _haversine(start_lat, start_lng, flat, flng) <= max_km:
-                        filtered.append(fp)
-                logger.info(f"select_node: added {sum(1 for c in filtered if c.get('category','').lower() == 'food')} food candidates")
-            candidates = filtered
-        else:
-            logger.warning(f"select_node: walking filter removed all candidates, relaxing to 10km")
-            filtered = [c for c in candidates if c.get("lat") and c.get("lng") and _haversine(start_lat, start_lng, c["lat"], c["lng"]) <= 10.0]
-            if filtered:
-                candidates = filtered
-
-    # Build candidate list for LLM, marking pinned as mandatory
-    pinned_names = {p["name"] for p in state.get("pinned_candidates", [])}
-    candidate_text = ""
-    for i, p in enumerate(candidates, 1):
-        mandatory = " ⚠️ MUST INCLUDE" if p.get("name") in pinned_names or p.get("_pinned") else ""
-        hours_info = p.get("hours", "")
-        lat, lng = p.get("lat"), p.get("lng")
-        coord_str = f", loc: {lat:.4f},{lng:.4f}" if lat and lng else ""
-        candidate_text += (
-            f"{i}. {p.get('name')} [{p.get('category')}] "
-            f"— rating {p.get('rating', 'N/A')}, "
-            f"{'OPEN' if p.get('is_open') else 'status unknown'}"
-            f"{coord_str}"
-        )
-        if hours_info:
-            candidate_text += f", hours: {hours_info}"
-        candidate_text += f"{mandatory}"
-        if p.get("about"):
-            candidate_text += f" | {p['about'][:80]}"
-        if p.get("cuisine_hint"):
-            candidate_text += f" | serves {p['cuisine_hint']}"
-        candidate_text += "\n"
-
     pinned_note = ""
-    if pinned_names:
-        pinned_note = f"\n⚠️ MANDATORY stops (user explicitly requested): {', '.join(pinned_names)} — these MUST appear in the output.\n"
-
+    if pinned:
+        pinned_note = f"\n⚠️ MANDATORY stops (user explicitly requested): {', '.join(p['name'] for p in pinned)} — these MUST appear.\n"
+    cuisine_note = ""
+    if cuisine_hints:
+        cuisine_note = f"\nUser wants these cuisines: {', '.join(cuisine_hints)}\n"
     date_hint = f"\nTrip date: {start_date}" if start_date else ""
-    logger.info(f"select_node: start_location={state.get('start_location')}, travel_mode={travel_mode}, candidates={len(candidates)}")
-    logger.info(f"select_node: first 5 candidates:\n" + "\n".join(candidate_text.strip().split("\n")[:5]))
-    system = (
-        "You are a Penang travel planner. Select and order the best stops for an itinerary. "
-        "Return ONLY valid JSON, no markdown, no explanation."
-    )
-    prompt = f"""User request: {description}
+
+    system = "You are a Penang travel expert. Plan a realistic day itinerary. Return ONLY valid JSON."
+    prompt = f"""Plan a day trip in Penang.
+
+User request: {description}
 Interests: {', '.join(interests)}
 Travel mode: {travel_mode}
+Starting from: {location_name}
 Time budget: {budget} minutes ({state['start_time']} – {state['end_time']}){date_hint}
-{pinned_note}
-Candidates:
-{candidate_text}
+{pinned_note}{cuisine_note}
+Rules:
+- Pick REAL, SPECIFIC places in Penang (not generic names like "local restaurant")
+- Each place must be a real establishment with a name (e.g. "Tek Sen Restaurant", not "lunch spot")
+- For each stop, provide 2 alternative places nearby in case the primary doesn't exist or is closed
+- USE THE FULL TIME BUDGET of {budget} minutes — itinerary must end close to {state['end_time']} (within 30 min)
+  * Calculate: sum of all visit durations + (number_of_stops × 15 min for travel) must be close to {budget}
+  * For {budget} min with ~15 min travel per stop: total visit time should be ~{budget - 8 * 15} to {budget} min
+  * Do NOT exceed {state['end_time']} — the last stop must finish by {state['end_time']}
+- Schedule food at PROPER meal times — plan the itinerary so food stops land at these times:
+  * Breakfast: 07:00-09:00 (if trip starts before 08:00)
+  * Lunch: 12:00-13:30 (MUST have a food stop arriving in this window)
+  * Dinner: 18:30-20:00 (if trip extends past 18:30, MUST have a food stop arriving in this window)
+  * Arrange non-food stops around these meal anchors
+- Don't put two food stops consecutively unless it's a food tour
+- Penang Hill = one stop (3+ hours, includes funicular + attractions on top)
+- Kek Lok Si = one stop (2+ hours, large complex)
+
+CRITICAL travel mode rules:
+- For WALKING mode: ALL stops must be in the SAME walkable area (within ~2km of each other)
+  * George Town heritage zone: Blue Mansion, Khoo Kongsi, Fort Cornwallis, Armenian Street, Clan Jetties, street art — all walkable
+  * Batu Ferringhi area: beaches, nearby restaurants — walkable within the strip
+  * You CANNOT walk between George Town and Penang Hill (15km), George Town and Batu Ferringhi (15km), or George Town and Kek Lok Si (8km)
+  * If starting from George Town, stay in George Town. If starting from Batu Ferringhi, stay in Batu Ferringhi.
+- For DRIVING mode: stops can be across the island, include Penang Hill, Kek Lok Si, Batu Ferringhi etc.
+- Kek Lok Si = one stop (2+ hours, large complex)
+
+Return JSON array:
+[
+  {{
+    "name": "Place Name",
+    "alternatives": ["Alt Place 1", "Alt Place 2"],
+    "visit_duration_min": 90,
+    "category": "heritage",
+    "reason": "why this place and duration"
+  }},
+  ...
+]"""
+
+    llm = _create_reasoning_llm()
+    response = llm.invoke([SystemMessage(content=system), HumanMessage(content=prompt)])
+    raw = response.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    planned = json.loads(raw.strip())
+
+    logger.info(f"plan_node: LLM planned {len(planned)} stops")
+    for s in planned:
+        logger.info(f"  → {s['name']} ({s.get('visit_duration_min')}min) alts={s.get('alternatives', [])}")
+
+    return {"selected_stops": planned}
+
+
+# ---------------------------------------------------------------------------
+# Node 2: enrich_node — Google validates and enriches each planned stop
+# ---------------------------------------------------------------------------
+
+def enrich_node(state: WorkflowState) -> dict:
+    """Validate each LLM-planned stop via Google Find Place + Place Details."""
+    planned = state["selected_stops"]
+    api_key = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
+    if not api_key:
+        return {"candidates": [], "error": "No Google Maps API key configured"}
+
+    enriched = []
+    for stop in planned:
+        name = stop["name"]
+        alternatives = stop.get("alternatives", [])
+        candidates_to_try = [name] + alternatives
+
+        found = None
+        for candidate_name in candidates_to_try:
+            place_id = _find_place_id(candidate_name, api_key)
+            if not place_id:
+                logger.info(f"enrich_node: '{candidate_name}' not found, trying next")
+                continue
+            details = _get_place_details_by_id(place_id, api_key)
+            if not details.get("name"):
+                continue
+            geo = details.get("geometry", {}).get("location", {})
+            weekday_text = details.get("opening_hours", {}).get("weekday_text", [])
+            found = {
+                "name": details["name"],
+                "place_id": place_id,
+                "category": stop.get("category", "attraction"),
+                "visit_duration_min": stop.get("visit_duration_min", 60),
+                "reason": stop.get("reason", ""),
+                "rating": details.get("rating"),
+                "review_count": details.get("user_ratings_total", 0),
+                "address": details.get("formatted_address") or details.get("vicinity", ""),
+                "lat": geo.get("lat"),
+                "lng": geo.get("lng"),
+                "photo_reference": details.get("photo_reference"),
+                "hours": " | ".join(weekday_text) if weekday_text else "",
+                "is_open": details.get("opening_hours", {}).get("open_now"),
+                "editorial": details.get("editorial_summary", {}).get("overview", ""),
+                "google_maps_url": f"https://www.google.com/maps/search/?api=1&query={details['name'].replace(' ', '+')}&query_place_id={place_id}",
+            }
+            if candidate_name != name:
+                logger.info(f"enrich_node: '{name}' not found, using alternative '{details['name']}'")
+            else:
+                logger.info(f"enrich_node: ✓ {details['name']} (rating={details.get('rating')}, has_photo={bool(details.get('photo_reference'))})")
+            break
+
+        if found:
+            enriched.append(found)
+        else:
+            logger.warning(f"enrich_node: ✗ '{name}' and all alternatives not found, dropping")
+
+    # Also add pinned candidates
+    for p in state.get("pinned_candidates", []):
+        if not any(e["name"].lower() == p["name"].lower() for e in enriched):
+            enriched.append(p)
+
+    order = [e["name"] for e in enriched]
+    logger.info(f"enrich_node: {len(enriched)}/{len(planned)} stops validated")
+    return {"candidates": enriched, "optimized_order": order, "selected_stops": enriched}
+
+
+# ---------------------------------------------------------------------------
+# Node 2.5: schedule_node — LLM orders stops with real hours + time awareness
+# ---------------------------------------------------------------------------
+
+def schedule_node(state: WorkflowState) -> dict:
+    """LLM reorders and schedules stops using real opening hours data."""
+    enriched = state["candidates"]
+    if not enriched:
+        return {}
+
+    start_time = state["start_time"]
+    end_time = state["end_time"]
+    travel_mode = state["travel_mode"]
+    budget = _budget_minutes(start_time, end_time)
+
+    # Build stop info with real hours and coordinates
+    stop_info = ""
+    for i, s in enumerate(enriched, 1):
+        hours = s.get("hours", "unknown")
+        lat, lng = s.get("lat"), s.get("lng")
+        coord = f" (loc: {lat:.4f},{lng:.4f})" if lat and lng else ""
+        stop_info += f"{i}. {s['name']} [{s.get('category')}] — {s.get('visit_duration_min', 60)}min, hours: {hours}{coord}\n"
+
+    system = "You are a smart Penang travel guide. Schedule stops in the best order. Return ONLY valid JSON."
+    prompt = f"""Schedule these stops into a day itinerary:
+
+{stop_info}
+Trip: {start_time} – {end_time} ({budget} min), travel mode: {travel_mode}
 
 Rules:
-- ONLY select SPECIFIC ATTRACTIONS from the candidates list above — use the EXACT name as shown
-- DO NOT invent or hallucinate stops like "Lunch at a local restaurant" — only pick from the numbered list above
-- DO NOT select generic location names like "Penang", "George Town", "Batu Ferringhi"
-- Each stop must be a real place with a specific name (e.g., "Fort Cornwallis", "Kek Lok Si Temple")
-- USE THE FULL TIME BUDGET — the itinerary MUST end close to {state['end_time']} (within 30 min)
-  * Keep adding stops until total (visits + travel) fills the budget
-  * Don't schedule a stop that would finish AFTER {state['end_time']}
-  * Example: 09:00-17:00 (480 min) → 09:00 Fort Cornwallis(75min) → 10:20 travel(10min) → 10:30 Kek Lok Si(90min) → 12:15 travel(15min) → 12:30 Lunch(60min) → 13:45 travel(10min) → 13:55 Khoo Kongsi(60min) → 15:05 travel(10min) → 15:15 Blue Mansion(75min) → 16:45 travel(10min) → 16:55 ✅
-  * Example: 09:00-12:00 (180 min) → 09:00 Penang Hill(150min) → 11:30 travel(20min) → 11:50 ✅
+- Order stops so each is visited WHEN IT IS OPEN. Check the hours carefully.
+  * If a place opens at 8:30 AM, don't schedule it before 8:30
+  * If a place closes at 5:00 PM, finish the visit before 5:00 PM
+- Group NEARBY stops together (use coordinates — closer lat/lng = nearby)
+- Schedule food at proper meal times:
+  * Lunch: arrive at food stop between 12:00-13:30
+  * Dinner: arrive at food stop between 18:30-19:30 (if trip extends past 18:30)
+- Estimate ~10-15 min driving or ~15-20 min walking between stops
+- Fill the FULL time budget — last stop should end close to {end_time}
+- If a stop cannot fit within its opening hours given the schedule, DROP it and note why
+- If you need more stops to fill the budget, suggest new ones with "added": true
 
-Duration Guidelines (be realistic — these are MINIMUM durations, not targets):
-- Penang Hill: MINIMUM 3 hours (30-45 min drive each way + funicular queue + exploring). For 9-12, Penang Hill fills the ENTIRE slot.
-- Kek Lok Si Temple: MINIMUM 2 hours (large complex, many levels, pagoda climb)
-- If Penang Hill AND Kek Lok Si are both selected, they need a FULL DAY (8+ hours) — never put both in a half-day
-- Large museums, heritage complexes: 75-120 min
-- Temples, clan houses, small museums: 45-75 min
-- Restaurants (sit-down meals): 60-90 min for lunch/dinner, 30-45 min for snacks
-- Markets, street food areas: 45-75 min
-- Street art, photo spots, small landmarks: 20-30 min
-- Beaches, parks: 60-90 min
-
-Crowd Considerations:
-- Weekend afternoons (Sat/Sun 12:00-17:00): add 30-60 min buffer for popular attractions
-- Weekday mornings: standard times, less crowded
-- Lunch/dinner rush (12:00-13:30, 18:30-20:00): add 15-30 min for restaurants
-- Public holidays: assume heavy crowds, add significant buffers
-
-Travel Time Between Stops:
-- Within George Town heritage zone: 5-15 min walk
-- George Town to Penang Hill/Kek Lok Si: 30-45 min each way (include in visit duration)
-- George Town to Batu Ferringhi: 45-60 min each way
-- For WALKING mode: consecutive stops must be within 2km of each other (≤25 min walk). Do NOT select stops that require >25 min walk between them. If starting at Batu Ferringhi, only pick stops near Batu Ferringhi — do NOT mix with George Town stops.
-  * Use the loc: coordinates to check proximity. Stops within ~0.02 lat/lng difference are walkable (~2km). Stops >0.05 apart are NOT walkable.
-- For DRIVING mode: stops can be up to 30km apart
-
-Other Rules:
-- Return stops in a logical visiting order: geographically efficient, time-aware
-- RESPECT OPENING HOURS: each candidate shows its hours. Before selecting a stop, check if it can be visited during the trip window ({state['start_time']}–{state['end_time']}).
-  * If a place opens AFTER the trip starts (e.g. opens 15:00, trip starts 09:00) — it can still be included but MUST be scheduled after it opens. Place it later in the order.
-  * If a place closes BEFORE the trip ends (e.g. closes 17:00, trip ends 21:00) — schedule it early enough that the visit finishes before closing.
-  * If a place is ENTIRELY outside the trip window (e.g. only open 08:00-10:00 but trip starts 12:00) — EXCLUDE it.
-  * Example: Gurney Drive Hawker Centre opens 15:00 → do NOT schedule it at 13:00. Place it at 15:00 or later.
-- If trip spans lunch time (11:30-14:00), include a food stop during that window
-- If trip spans dinner time (18:00-20:30), include a food stop during that window
-- NEVER put two food/restaurant stops consecutively unless it's explicitly a food tour
-- For mixed trips, pattern: Activity → Food → Activity → Activity → Food
-- AVOID selecting places that are the same location under different names (e.g. "Clan Jetties of Penang" and "Chew Jetty" are the same place — pick only ONE)
-- Prefer higher-rated, currently open places
-- Any stop marked ⚠️ MUST INCLUDE is mandatory regardless of other rules
-
-Return JSON array in visiting order:
+Return JSON array in scheduled order:
 [
-  {{"name": "Place Name", "visit_duration_min": 90, "reason": "why included and why this duration", "category": "heritage"}},
+  {{"name": "Place Name", "visit_duration_min": 90, "scheduled_arrival": "09:00", "reason": "opens at 8:30, good morning start"}},
   ...
 ]"""
 
     try:
-        llm = _create_llm()
+        llm = _create_reasoning_llm()
         response = llm.invoke([SystemMessage(content=system), HumanMessage(content=prompt)])
         raw = response.content.strip()
-        # Strip markdown code fences if present
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
-        selected = json.loads(raw.strip())
-        logger.info(f"select_node: LLM selected {len(selected)} stops in order")
-        for s in selected:
-            logger.info(f"  → {s['name']} ({s.get('visit_duration_min')}min) — {s.get('reason','')[:80]}")
+        scheduled = json.loads(raw.strip())
 
-        # Validate: remove any stop not in the candidate list (fuzzy match)
-        candidate_names_lower = {c["name"].lower(): c["name"] for c in candidates}
-        import re as _re
-        def _normalize(s: str) -> str:
-            return _re.sub(r'(.)\1+', r'\1', s.lower().strip())
-        candidate_norms = {_normalize(c["name"]): c["name"] for c in candidates}
-        def _matches_candidate(name: str) -> bool:
-            nl = name.lower()
-            if nl in candidate_names_lower:
-                return True
-            nn = _normalize(name)
-            if nn in candidate_norms:
-                return True
-            for cn in candidate_names_lower:
-                if nl in cn or cn in nl:
-                    return True
-            return False
-        valid = [s for s in selected if _matches_candidate(s["name"])]
-        if len(valid) < len(selected):
-            removed = [s["name"] for s in selected if not _matches_candidate(s["name"])]
-            logger.warning(f"select_node: removed hallucinated stops: {removed}")
-            selected = valid
+        logger.info(f"schedule_node: scheduled {len(scheduled)} stops")
+        for s in scheduled:
+            logger.info(f"  → {s['name']} at {s.get('scheduled_arrival', '?')} ({s.get('visit_duration_min')}min) — {s.get('reason', '')[:60]}")
 
-        # Build optimized_order directly from LLM's ordering
-        order = [s["name"] for s in selected]
-        
-        # Post-select: optimize geography while preserving meal timing + category rules
-        optimized_order = _optimize_order_geographically(order, selected, candidates)
-        
-        return {"selected_stops": selected, "optimized_order": optimized_order, "candidates": candidates}
-    except Exception as e:
-        logger.error(f"select_node: LLM error: {e}")
-        # Fallback: take top candidates by rating, enforce food spacing
-        fallback = []
-        for p in sorted(candidates, key=lambda x: x.get("rating", 0), reverse=True):
-            fallback.append({
-                "name": p["name"],
-                "visit_duration_min": p.get("duration_min", 45),
-                "reason": "fallback selection",
-                "category": p.get("category", ""),
-            })
-            if len(fallback) >= 6:
-                break
-        return {"selected_stops": fallback}
+        # Update order and durations from schedule
+        new_order = []
+        enriched_lookup = {e["name"].lower(): e for e in enriched}
+        new_selected = []
 
+        api_key = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
 
-def _optimize_order_geographically(order: list, selected: list, candidates: list) -> list:
-    """Optimize stop order geographically while preserving food spacing and meal timing.
-    
-    Strategy: For each consecutive pair >1.5km apart, try swapping with a closer stop
-    that doesn't violate food-after-food rule.
-    """
-    if len(order) < 3:
-        return order
-    
-    # Build lookups
-    stop_lookup = {s["name"]: s for s in selected}
-    cand_lookup = {c["name"]: c for c in candidates}
-    
-    # Get coords for all stops
-    coords = {}
-    for name in order:
-        cand = cand_lookup.get(name, {})
-        if cand.get("lat") and cand.get("lng"):
-            coords[name] = (cand["lat"], cand["lng"])
-    
-    if len(coords) < 3:
-        return order  # Not enough coords to optimize
-    
-    food_categories = {"food", "restaurant"}
-    
-    def is_food(name):
-        cat = stop_lookup.get(name, {}).get("category", "").lower()
-        return cat in food_categories
-    
-    # Greedy optimization: fix long gaps
-    optimized = list(order)
-    max_iterations = len(order) * 2
-    
-    for _ in range(max_iterations):
-        improved = False
-        for i in range(len(optimized) - 1):
-            curr = optimized[i]
-            next_stop = optimized[i + 1]
-            
-            if curr not in coords or next_stop not in coords:
-                continue
-            
-            dist = _haversine(*coords[curr], *coords[next_stop])
-            
-            # If gap >1.5km, try to find a closer stop to insert
-            if dist > 1.5:
-                # Find unvisited stops that are closer to curr
-                for j in range(i + 2, len(optimized)):
-                    candidate = optimized[j]
-                    if candidate not in coords:
-                        continue
-                    
-                    candidate_dist = _haversine(*coords[curr], *coords[candidate])
-                    
-                    # Check if swapping improves distance and doesn't violate food rule
-                    if candidate_dist < dist * 0.7:  # At least 30% closer
-                        # Check food constraint
-                        prev_is_food = i > 0 and is_food(optimized[i - 1])
-                        curr_is_food = is_food(curr)
-                        candidate_is_food = is_food(candidate)
-                        next_is_food = is_food(next_stop)
-                        
-                        # Don't create food-food pairs
-                        if candidate_is_food and (curr_is_food or next_is_food):
-                            continue
-                        if is_food(optimized[j - 1]) and candidate_is_food:
-                            continue
-                        
-                        # Swap
-                        optimized[i + 1], optimized[j] = optimized[j], optimized[i + 1]
-                        improved = True
-                        logger.info(f"Geographic optimization: moved {candidate} closer to {curr}")
+        for s in scheduled:
+            name = s["name"]
+            # Find in enriched (fuzzy)
+            match = enriched_lookup.get(name.lower())
+            if not match:
+                for k, v in enriched_lookup.items():
+                    if name.lower() in k or k in name.lower():
+                        match = v
                         break
-            
-            if improved:
-                break
-        
-        if not improved:
-            break
-    
-    return optimized
+
+            if match:
+                match["visit_duration_min"] = s.get("visit_duration_min", match.get("visit_duration_min", 60))
+                if s.get("scheduled_arrival"):
+                    match["scheduled_arrival"] = s["scheduled_arrival"]
+                new_order.append(match["name"])
+                new_selected.append(match)
+            elif s.get("added"):
+                # LLM suggested a new stop — enrich it
+                pid = _find_place_id(name, api_key) if api_key else None
+                if pid:
+                    det = _get_place_details_by_id(pid, api_key)
+                    if det.get("name"):
+                        geo = det.get("geometry", {}).get("location", {})
+                        wt = det.get("opening_hours", {}).get("weekday_text", [])
+                        new_stop = {
+                            "name": det["name"], "place_id": pid,
+                            "category": s.get("category", "attraction"),
+                            "visit_duration_min": s.get("visit_duration_min", 60),
+                            "rating": det.get("rating"),
+                            "address": det.get("vicinity", ""),
+                            "lat": geo.get("lat"), "lng": geo.get("lng"),
+                            "photo_reference": det.get("photo_reference"),
+                            "hours": " | ".join(wt) if wt else "",
+                            "editorial": det.get("editorial_summary", {}).get("overview", ""),
+                            "google_maps_url": f"https://www.google.com/maps/search/?api=1&query={det['name'].replace(' ', '+')}&query_place_id={pid}",
+                        }
+                        new_order.append(new_stop["name"])
+                        new_selected.append(new_stop)
+                        enriched.append(new_stop)
+                        logger.info(f"schedule_node: added new stop '{det['name']}'")
+
+        if new_order:
+            return {"optimized_order": new_order, "selected_stops": new_selected, "candidates": enriched}
+
+    except Exception as e:
+        logger.warning(f"schedule_node: failed ({e}), keeping original order")
+
+    return {}
 
 
 # ---------------------------------------------------------------------------
-# Node 3: Optimize Route (Haversine nearest-neighbor — no API call)
+# Node 3: travel_time_node — Distance Matrix for real travel times
 # ---------------------------------------------------------------------------
 
 def _haversine(lat1, lng1, lat2, lng2) -> float:
@@ -617,67 +495,9 @@ def _haversine(lat1, lng1, lat2, lng2) -> float:
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-def optimize_node(state: WorkflowState) -> dict:
-    """Reorder stops using nearest-neighbor heuristic on Haversine distances.
-    Fetches coords once here; caches them on candidates so format_node reuses them.
-    """
-    stops = state["selected_stops"]
-    candidates = state["candidates"]
-    if not stops:
-        return {"optimized_order": []}
-
-    names = [s["name"] for s in stops]
-    if len(names) < 3:
-        return {"optimized_order": names}
-
-    api_key = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
-    cand_lookup = {c["name"]: c for c in candidates}
-
-    # Fetch coords for each stop (cache onto candidate dict for format_node reuse)
-    coords = {}  # name → (lat, lng)
-    for name in names:
-        cand = cand_lookup.get(name, {})
-        if cand.get("lat") and cand.get("lng"):
-            coords[name] = (cand["lat"], cand["lng"])
-            continue
-        place_id = cand.get("place_id")
-        if api_key and place_id:
-            try:
-                details = _get_place_details_by_id(place_id, api_key)
-                geo = details.get("geometry", {}).get("location", {})
-                lat, lng = geo.get("lat"), geo.get("lng")
-                if lat and lng:
-                    coords[name] = (lat, lng)
-                    cand["lat"], cand["lng"] = lat, lng  # cache for format_node
-            except Exception:
-                pass
-
-    if len(coords) < 2:
-        return {"optimized_order": names}
-
-    # Nearest-neighbor from first stop
-    unvisited = list(names)
-    ordered = [unvisited.pop(0)]
-    while unvisited:
-        last = ordered[-1]
-        if last not in coords:
-            ordered.append(unvisited.pop(0))
-            continue
-        nearest = min(unvisited, key=lambda n: _haversine(*coords[last], *coords[n]) if n in coords else float("inf"))
-        ordered.append(nearest)
-        unvisited.remove(nearest)
-
-    logger.info(f"optimize_node (haversine): {names} → {ordered}")
-    return {"optimized_order": ordered}
-
-
-# ---------------------------------------------------------------------------
-# Node 4: Travel Times
-# ---------------------------------------------------------------------------
-
 def travel_time_node(state: WorkflowState) -> dict:
-    """Get real travel times between consecutive stops — single batched Distance Matrix call."""
-    order = state["optimized_order"]
+    """Fetch real travel times via Distance Matrix API."""
+    order = state.get("optimized_order", [])
     travel_mode = state["travel_mode"]
     segments = {}
 
@@ -689,9 +509,9 @@ def travel_time_node(state: WorkflowState) -> dict:
 
     if api_key and api_key != "your_google_maps_api_key_here":
         try:
+            import requests as _req
             origins = "|".join(f"{o}, Penang, Malaysia" for o, _ in pairs)
             destinations = "|".join(f"{d}, Penang, Malaysia" for _, d in pairs)
-            import requests as _req, re
             resp = _req.get(
                 "https://maps.googleapis.com/maps/api/distancematrix/json",
                 params={"origins": origins, "destinations": destinations,
@@ -705,7 +525,6 @@ def travel_time_node(state: WorkflowState) -> dict:
                 for i, (origin, dest) in enumerate(pairs):
                     key = f"{origin}->{dest}"
                     try:
-                        # Each origin row i, destination column i (diagonal)
                         element = data["rows"][i]["elements"][i]
                         if element["status"] == "OK":
                             duration_min = element["duration"]["value"] // 60
@@ -716,24 +535,167 @@ def travel_time_node(state: WorkflowState) -> dict:
                         duration_min, distance_text = 15, ""
                     segments[key] = {"duration_min": duration_min, "distance_text": distance_text}
                     logger.info(f"travel_time_node: {key} = {duration_min} min")
-
-                # For walking mode, warn if any segment is unreasonably long
-                if travel_mode == "walking":
-                    for key, seg in segments.items():
-                        if seg["duration_min"] > 30:
-                            logger.warning(f"travel_time_node: walking segment {key} = {seg['duration_min']} min — stops too far apart")
-
                 return {"travel_segments": segments}
         except Exception as e:
             logger.warning(f"travel_time_node: batch call failed ({e}), falling back to defaults")
 
-    # Fallback: all 15 min
     for origin, dest in pairs:
         segments[f"{origin}->{dest}"] = {"duration_min": 15, "distance_text": ""}
-
     return {"travel_segments": segments}
 
 
+# ---------------------------------------------------------------------------
+# Node 4: validate_node — deterministic checks, drop bad stops
+# ---------------------------------------------------------------------------
+
+def validate_node(state: WorkflowState) -> dict:
+    """Drop stops with excessive travel time or past end_time. Recalculate."""
+    order = list(state.get("optimized_order", []))
+    segments = state.get("travel_segments", {})
+    selected = list(state.get("selected_stops", []))
+    travel_mode = state["travel_mode"]
+    end_min = _time_to_min(state["end_time"])
+    start_min = _time_to_min(state["start_time"])
+    max_walk_min = 35
+    original_count = len(order)
+
+    logger.info(f"validate_node: checking {len(order)} stops, mode={travel_mode}, end={state['end_time']}")
+
+    stop_lookup = {s["name"]: s for s in selected}
+    cand_lookup = {s["name"]: s for s in state.get("candidates", [])}
+    changed = True
+    while changed:
+        changed = False
+        current = start_min
+        for i, name in enumerate(order):
+            dur = stop_lookup.get(name, {}).get("visit_duration_min", 45)
+            # Use scheduled arrival from schedule_node if available, else calculate sequentially
+            scheduled = stop_lookup.get(name, {}).get("scheduled_arrival")
+            if scheduled:
+                arrival_time = scheduled
+                current = _time_to_min(scheduled)
+            else:
+                arrival_time = _min_to_time(current)
+
+            # Check opening hours
+            hours = cand_lookup.get(name, {}).get("hours", "") or stop_lookup.get(name, {}).get("hours", "")
+            if hours:
+                is_open, hours_today = _is_open_at(hours, arrival_time)
+                if not is_open:
+                    logger.warning(f"validate_node: dropping '{name}' — closed at {arrival_time} ({hours_today})")
+                    order.pop(i)
+                    selected = [s for s in selected if s["name"] != name]
+                    changed = True
+                    break
+
+            current += dur
+            if i < len(order) - 1:
+                key = f"{name}->{order[i+1]}"
+                travel = segments.get(key, {}).get("duration_min", 15)
+                if travel_mode == "walking" and travel > max_walk_min:
+                    dropped = order[i + 1]
+                    logger.warning(f"validate_node: dropping '{dropped}' — {travel}min walk from '{name}'")
+                    order.pop(i + 1)
+                    selected = [s for s in selected if s["name"] != dropped]
+                    changed = True
+                    break
+                current += travel
+            if current > end_min + 30:
+                dropped = order[i:]
+                logger.warning(f"validate_node: dropping {dropped} — past end time ({_min_to_time(current)} > {state['end_time']})")
+                order = order[:i]
+                selected = [s for s in selected if s["name"] in order]
+                changed = True
+                break
+
+    if len(order) != original_count:
+        logger.info(f"validate_node: {original_count} → {len(order)} stops after validation")
+
+        # Check if we need to fill gaps — ask LLM for replacements
+        stop_lookup_updated = {s["name"]: s for s in selected}
+        current = start_min
+        for name in order:
+            current += stop_lookup_updated.get(name, {}).get("visit_duration_min", 45)
+        remaining = end_min - current
+        has_food = any(s.get("category", "").lower() in {"food", "restaurant"} for s in selected)
+        needs_lunch = start_min <= 750 and end_min >= 810  # spans 12:30
+
+        if remaining > 60 or (needs_lunch and not has_food):
+            logger.info(f"validate_node: {remaining}min remaining, has_food={has_food} — asking LLM for fill stops")
+            try:
+                llm = _create_llm()
+                area = order[0] if order else state.get("start_location", "George Town")
+                fill_prompt = f"""The itinerary near {area} in Penang has {remaining} minutes of free time and ends too early.
+Current stops: {', '.join(order)}
+Travel mode: {travel_mode}
+{"Need a food/restaurant stop for lunch." if needs_lunch and not has_food else ""}
+Suggest {max(1, remaining // 75)} more stops that are WALKABLE from the existing stops (within 2km).
+Return ONLY JSON array: [{{"name": "Place", "alternatives": ["Alt1"], "visit_duration_min": 60, "category": "food"}}]"""
+                resp = llm.invoke([SystemMessage(content="Return only valid JSON."), HumanMessage(content=fill_prompt)])
+                raw = resp.content.strip().strip("```json").strip("```").strip()
+                fill_stops = json.loads(raw)
+                # Enrich and append
+                api_key = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
+                for fs in fill_stops:
+                    for cand_name in [fs["name"]] + fs.get("alternatives", []):
+                        pid = _find_place_id(cand_name, api_key)
+                        if not pid:
+                            continue
+                        det = _get_place_details_by_id(pid, api_key)
+                        if not det.get("name"):
+                            continue
+                        geo = det.get("geometry", {}).get("location", {})
+                        wt = det.get("opening_hours", {}).get("weekday_text", [])
+                        enriched = {
+                            "name": det["name"], "place_id": pid, "category": fs.get("category", "attraction"),
+                            "visit_duration_min": fs.get("visit_duration_min", 60), "reason": "",
+                            "rating": det.get("rating"), "address": det.get("vicinity", ""),
+                            "lat": geo.get("lat"), "lng": geo.get("lng"),
+                            "photo_reference": det.get("photo_reference"),
+                            "hours": " | ".join(wt) if wt else "",
+                            "editorial": det.get("editorial_summary", {}).get("overview", ""),
+                            "google_maps_url": f"https://www.google.com/maps/search/?api=1&query={det['name'].replace(' ', '+')}&query_place_id={pid}",
+                        }
+                        order.append(enriched["name"])
+                        selected.append(enriched)
+                        logger.info(f"validate_node: filled with '{det['name']}' ({fs.get('category')})")
+                        break
+            except Exception as e:
+                logger.warning(f"validate_node: fill failed: {e}")
+
+        # Recalculate travel times for new consecutive pairs
+        new_segments = {}
+        api_key = os.getenv("GOOGLE_MAPS_API_KEY")
+        if len(order) >= 2 and api_key:
+            pairs = [(order[i], order[i+1]) for i in range(len(order)-1)]
+            try:
+                import requests as _req
+                origins = "|".join(f"{o}, Penang, Malaysia" for o, _ in pairs)
+                destinations = "|".join(f"{d}, Penang, Malaysia" for _, d in pairs)
+                resp = _req.get("https://maps.googleapis.com/maps/api/distancematrix/json",
+                    params={"origins": origins, "destinations": destinations, "mode": travel_mode, "key": api_key}, timeout=15)
+                data = resp.json()
+                if data.get("status") == "OK":
+                    for i, (o, d) in enumerate(pairs):
+                        try:
+                            el = data["rows"][i]["elements"][i]
+                            dur = el["duration"]["value"] // 60 if el["status"] == "OK" else 15
+                            dist = el["distance"]["text"] if el["status"] == "OK" else ""
+                        except Exception:
+                            dur, dist = 15, ""
+                        new_segments[f"{o}->{d}"] = {"duration_min": dur, "distance_text": dist}
+                        logger.info(f"validate_node: recalculated {o}->{d} = {dur} min")
+            except Exception:
+                for o, d in pairs:
+                    new_segments[f"{o}->{d}"] = {"duration_min": 15, "distance_text": ""}
+        segments = new_segments
+    else:
+        logger.info(f"validate_node: all {len(order)} stops passed ✓")
+
+    return {"optimized_order": order, "selected_stops": selected, "travel_segments": segments}
+
+
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Node 5: Format
 # ---------------------------------------------------------------------------
@@ -915,7 +877,10 @@ def format_node(state: WorkflowState) -> dict:
 
 def _time_to_min(t: str) -> int:
     try:
-        h, m = map(int, t.split(":"))
+        if ":" in t:
+            h, m = map(int, t.split(":"))
+        else:
+            h, m = int(t), 0
         return h * 60 + m
     except Exception:
         return 540
@@ -963,25 +928,193 @@ def run_itinerary_workflow(
         "error": None,
     }
 
-    logger.info(f"workflow: starting — {len(state['interests'])} interests, {travel_mode}, {start_time}-{end_time}")
+    logger.info(f"workflow: starting — {len(state['interests'])} interests, {travel_mode}, {start_time}-{end_time}, location={start_location}")
 
     state.update(parse_description_node(state))
-    state.update(search_node(state))
-    if state.get("error"):
-        raise RuntimeError(state["error"])
 
-    state.update(select_node(state))
+    state.update(plan_node(state))
     if state.get("error") or not state["selected_stops"]:
-        raise RuntimeError(state.get("error") or "No stops selected")
+        raise RuntimeError(state.get("error") or "No stops planned")
 
-    # optimize_node skipped — LLM already ordered stops in select_node
+    state.update(enrich_node(state))
+    if not state.get("candidates"):
+        raise RuntimeError("No valid places found after Google validation")
+
+    state.update(schedule_node(state))
+
     state.update(travel_time_node(state))
+    state.update(validate_node(state))
+
+    if not state.get("optimized_order"):
+        raise RuntimeError("No stops remaining after validation")
+
     state.update(format_node(state))
 
     if state.get("error") or not state["result"]:
         raise RuntimeError(state.get("error") or "Failed to format itinerary")
 
+    # Post-check: fill gaps if needed
+    result = state["result"]
+    issues = _check_itinerary(result, start_time, end_time)
+    if issues:
+        logger.info(f"workflow: post-check issues: {issues}")
+        _fill_itinerary_gaps(state, issues)
+        # Rebuild after filling
+        if state.get("optimized_order"):
+            state.update(travel_time_node(state))
+            state.update(format_node(state))
+        result = state["result"]
+        remaining_issues = _check_itinerary(result, start_time, end_time)
+        if remaining_issues:
+            logger.warning(f"workflow: accepting with remaining issues: {remaining_issues}")
+        else:
+            logger.info("workflow: post-fill check passed ✓")
+
     return state["result"]
+
+
+def _check_itinerary(result: ItineraryData, start_time: str, end_time: str) -> list[str]:
+    """Check itinerary for time budget, meal gaps, and other issues."""
+    issues = []
+    end_min = _time_to_min(end_time)
+    start_min = _time_to_min(start_time)
+
+    if not result.stops:
+        return ["No stops"]
+
+    last_dep = _time_to_min(result.stops[-1].departure_time or end_time)
+    unused = end_min - last_dep
+    if unused > 60:
+        issues.append(f"ends_{unused}min_early")
+    if last_dep > end_min + 30:
+        issues.append(f"exceeds_{last_dep - end_min}min")
+
+    # Check lunch
+    if start_min <= 720 and end_min >= 810:
+        food_words = ["restaurant", "hawker", "cafe", "food", "nasi", "mee", "laksa", "coffee", "kandar", "curry", "chendul", "cendol"]
+        has_lunch = False
+        for s in result.stops:
+            arr = _time_to_min(s.arrival_time or "00:00")
+            dep = _time_to_min(s.departure_time or "00:00")
+            is_food = any(w in s.name.lower() for w in food_words)
+            covers_lunch = arr <= 810 and dep >= 720  # stop spans lunch window
+            long_stop_at_lunch = (dep - arr) >= 120 and covers_lunch  # 2h+ stop during lunch = eating included
+            if (is_food and 690 <= arr <= 840) or long_stop_at_lunch:
+                has_lunch = True
+                break
+        if not has_lunch:
+            issues.append("no_lunch")
+
+    # Check dinner
+    if end_min >= 1140:
+        food_words = ["restaurant", "hawker", "cafe", "food", "nasi", "mee", "laksa", "kandar", "curry"]
+        has_dinner = any(
+            any(w in s.name.lower() for w in food_words) and 1080 <= _time_to_min(s.arrival_time or "00:00") <= 1230
+            for s in result.stops
+        )
+        if not has_dinner:
+            issues.append("no_dinner")
+
+    return issues
+
+
+def _fill_itinerary_gaps(state: WorkflowState, issues: list[str]):
+    """Fill time gaps and missing meals by asking LLM for specific additions."""
+    result = state["result"]
+    end_min = _time_to_min(state["end_time"])
+    last_dep = _time_to_min(result.stops[-1].departure_time or state["end_time"])
+    remaining = end_min - last_dep
+    existing_names = [s.name for s in result.stops]
+    last_stop = result.stops[-1].name if result.stops else "George Town"
+
+    needs_dinner = "no_dinner" in issues
+    needs_more = remaining > 60
+
+    if not needs_dinner and not needs_more:
+        return
+
+    # Ask LLM for specific fill stops
+    llm = _create_llm()
+    fill_request = []
+    if needs_dinner:
+        fill_request.append("a dinner restaurant/hawker centre (to arrive around 18:30-19:30)")
+    if needs_more and remaining > 120:
+        fill_request.append(f"1-2 more attractions to fill {remaining}min of free time")
+    elif needs_more:
+        fill_request.append(f"1 more attraction to fill {remaining}min of free time")
+
+    prompt = f"""I need to add stops to a Penang itinerary near {last_stop}.
+Already visited: {', '.join(existing_names)}
+Travel mode: {state['travel_mode']}
+{"WALKING MODE — only suggest places within 2km walking distance of " + last_stop + "." if state['travel_mode'] == 'walking' else ""}
+Need: {' AND '.join(fill_request)}
+
+Return ONLY JSON array of new stops:
+[{{"name": "Real Place Name", "alternatives": ["Alt1"], "visit_duration_min": 60, "category": "food"}}]"""
+
+    try:
+        resp = llm.invoke([SystemMessage(content="Return only valid JSON."), HumanMessage(content=prompt)])
+        raw = resp.content.strip().strip("```json").strip("```").strip()
+        new_stops = json.loads(raw)
+        logger.info(f"_fill_gaps: LLM suggested {len(new_stops)} fill stops")
+
+        api_key = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
+        order = list(state["optimized_order"])
+        selected = list(state["selected_stops"])
+        candidates = list(state["candidates"])
+
+        for fs in new_stops:
+            for cand_name in [fs["name"]] + fs.get("alternatives", []):
+                pid = _find_place_id(cand_name, api_key)
+                if not pid:
+                    continue
+                det = _get_place_details_by_id(pid, api_key)
+                if not det.get("name"):
+                    continue
+                geo = det.get("geometry", {}).get("location", {})
+                wt = det.get("opening_hours", {}).get("weekday_text", [])
+                enriched = {
+                    "name": det["name"], "place_id": pid,
+                    "category": fs.get("category", "attraction"),
+                    "visit_duration_min": fs.get("visit_duration_min", 60),
+                    "rating": det.get("rating"),
+                    "address": det.get("vicinity", ""),
+                    "lat": geo.get("lat"), "lng": geo.get("lng"),
+                    "photo_reference": det.get("photo_reference"),
+                    "hours": " | ".join(wt) if wt else "",
+                    "editorial": det.get("editorial_summary", {}).get("overview", ""),
+                    "google_maps_url": f"https://www.google.com/maps/search/?api=1&query={det['name'].replace(' ', '+')}&query_place_id={pid}",
+                }
+                # Check if it would be open at estimated arrival
+                est_arrival = _min_to_time(last_dep + 15)
+                hours_str = " | ".join(wt) if wt else ""
+                if hours_str:
+                    is_open, _ = _is_open_at(hours_str, est_arrival)
+                    if not is_open:
+                        logger.info(f"_fill_gaps: skipping '{det['name']}' — closed at {est_arrival}")
+                        continue
+                # Check walking distance from last stop
+                if state["travel_mode"] == "walking" and order:
+                    last_cand = next((c for c in candidates if c["name"] == order[-1]), {})
+                    last_lat, last_lng = last_cand.get("lat"), last_cand.get("lng")
+                    new_lat, new_lng = geo.get("lat"), geo.get("lng")
+                    if last_lat and last_lng and new_lat and new_lng:
+                        dist = _haversine(last_lat, last_lng, new_lat, new_lng)
+                        if dist > 3.0:
+                            logger.info(f"_fill_gaps: skipping '{det['name']}' — {dist:.1f}km from last stop (walking)")
+                            continue
+                order.append(enriched["name"])
+                selected.append(enriched)
+                candidates.append(enriched)
+                last_dep += fs.get("visit_duration_min", 60) + 15
+                logger.info(f"_fill_gaps: added '{det['name']}' ({fs.get('category')})")
+                break
+
+        state["optimized_order"] = order
+        state["selected_stops"] = selected
+        state["candidates"] = candidates
+    except Exception as e:
+        logger.warning(f"_fill_gaps: failed: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -1153,102 +1286,91 @@ IMPORTANT: "add X" without a position always means INSERT as a new stop (operati
             stops_list[idx]["visit_duration_min"] = op["new_duration_min"]
 
     elif op["operation"] in ("add", "swap"):
-        # Search for the new place
-        new_place_query = op.get("new_place_query", "")
+        new_place_query = op.get("new_place_query", "") or ""
         new_stop = None
+        api_key = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
 
-        if new_place_query:
-            from .tools import search_nearby_places
-            # Get anchor coords from existing stops
-            anchor_lat = stops_list[0].get("lat") or 5.4141
-            anchor_lng = stops_list[0].get("lng") or 100.3288
-            raw_results = search_nearby_places(
-                location=f"{anchor_lat},{anchor_lng}",
-                place_type="restaurant" if "lunch" in new_place_query.lower() or "food" in new_place_query.lower() or "dinner" in new_place_query.lower() else "tourist_attraction",
-                keyword=new_place_query,
-                radius=2000,
-            )
-            # Parse first result
-            api_key = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
-            for block in raw_results.strip().split("\n\n"):
-                if "Google Maps:" not in block:
-                    continue
-                place = {}
-                for line in block.split("\n"):
-                    line = line.strip()
-                    if line and line[0].isdigit() and "**" in line:
-                        place["name"] = line.split("**")[1]
-                    elif line.startswith("Rating:"):
-                        try:
-                            place["rating"] = float(line.split("★")[0].replace("Rating:", "").strip())
-                        except Exception:
-                            pass
-                    elif line.startswith("LatLng:"):
-                        try:
-                            lat_s, lng_s = line.replace("LatLng:", "").strip().split(",")
-                            place["lat"], place["lng"] = float(lat_s), float(lng_s)
-                        except Exception:
-                            pass
-                    elif line.startswith("PhotoRef:"):
-                        place["photo_reference"] = line.replace("PhotoRef:", "").strip()
-                    elif line.startswith("Address:"):
-                        place["address"] = line.replace("Address:", "").strip()
-                    elif line.startswith("Hours:"):
-                        place["hours"] = line.replace("Hours:", "").strip()
-                    elif "Google Maps:" in line:
-                        url = line.split("Google Maps:")[-1].strip()
-                        if "query_place_id=" in url:
-                            place["place_id"] = url.split("query_place_id=")[-1]
-                            place["google_maps_url"] = f"https://www.google.com/maps/search/?api=1&query={place.get('name','').replace(' ', '+')}&query_place_id={place['place_id']}"
-                if place.get("name") and place.get("place_id"):
-                    # Check if place is open at planned arrival time
-                    insert_after = op.get("insert_after")
-                    if insert_after == "last" or insert_after is None:
-                        planned_arrival = _min_to_time(_time_to_min(stops_list[-1].get("departure_time", end_time)))
-                    else:
-                        idx = min(int(insert_after), len(stops_list) - 1)
-                        planned_arrival = _min_to_time(_time_to_min(stops_list[idx].get("departure_time", start_time)))
-                    is_open, hours_today = _is_open_at(place.get("hours", ""), planned_arrival)
-                    if not is_open:
-                        try:
-                            llm = _create_llm()
-                            msg = llm.invoke([HumanMessage(content=
-                                f"The user wanted to add '{place['name']}' to their Penang itinerary at {planned_arrival}, "
-                                f"but it's closed then. Hours: {hours_today or 'unknown'}. "
-                                f"Write a short friendly 2-sentence response telling them it's closed and offer to suggest alternatives. "
-                                f"Use markdown bold for the place name."
-                            )]).content.strip()
-                        except Exception:
-                            msg = (f"**{place['name']}** is closed at {planned_arrival}. "
-                                   f"{hours_today} Would you like me to suggest somewhere else? 😊")
-                        raise PlaceUnavailableError(msg)
-                    
-                    photo_url = None
-                    if place.get("photo_reference") and api_key:
-                        photo_url = f"https://places.googleapis.com/v1/{place['photo_reference']}/media?maxHeightPx=400&key={api_key}"
-                    new_stop = {
-                        "name": place["name"],
-                        "visit_duration_min": 60,
-                        "description": f"Visit {place['name']} in Penang.",
-                        "short_description": f"Visit {place['name']}",
-                        "lat": place.get("lat"),
-                        "lng": place.get("lng"),
-                        "rating": place.get("rating"),
-                        "address": place.get("address"),
-                        "google_maps_url": place.get("google_maps_url"),
-                        "photo_url": photo_url,
-                        "opening_hours": place.get("hours"),
-                        "phone": None,
-                        "travel_to_next": None,
-                    }
-                    break
+        # Step A: LLM suggests a real place name + alternatives
+        existing_names = [s["name"] for s in stops_list]
+        action_desc = f"replace stop {op.get('target_position', '')}" if op['operation'] == 'swap' else "add"
+        suggest_prompt = f"""The user wants to {action_desc} a place to their Penang itinerary.
+User message: "{user_message}"
+Current stops: {', '.join(existing_names)}
+Travel mode: {travel_mode}
+
+Suggest ONE specific real place in Penang that fits the request, plus 2 alternatives.
+Return ONLY JSON: {{"name": "Real Place Name", "alternatives": ["Alt1", "Alt2"], "visit_duration_min": 60, "category": "food"}}"""
+
+        try:
+            resp = llm.invoke([SystemMessage(content="Return only valid JSON."), HumanMessage(content=suggest_prompt)])
+            suggestion = json.loads(resp.content.strip().strip("```json").strip("```").strip())
+            candidates_to_try = [suggestion["name"]] + suggestion.get("alternatives", [])
+            logger.info(f"modify_itinerary: LLM suggested '{suggestion['name']}' alts={suggestion.get('alternatives', [])}")
+        except Exception:
+            # Fallback: use the query directly
+            candidates_to_try = [new_place_query] if new_place_query else [user_message.strip()]
+            suggestion = {"visit_duration_min": 60, "category": "attraction"}
+
+        # Step B: Google validates — Find Place + Place Details
+        for cand_name in candidates_to_try:
+            place_id = _find_place_id(cand_name, api_key) if api_key else None
+            if not place_id:
+                logger.info(f"modify_itinerary: '{cand_name}' not found, trying next")
+                continue
+            details = _get_place_details_by_id(place_id, api_key)
+            if not details.get("name"):
+                continue
+            geo = details.get("geometry", {}).get("location", {})
+            weekday_text = details.get("opening_hours", {}).get("weekday_text", [])
+            hours_str = " | ".join(weekday_text) if weekday_text else ""
+
+            # Check opening hours at planned arrival
+            insert_after = op.get("insert_after")
+            if insert_after == "last" or insert_after is None:
+                planned_arrival = _min_to_time(_time_to_min(stops_list[-1].get("departure_time", end_time)))
+            else:
+                idx = min(int(insert_after), len(stops_list) - 1)
+                planned_arrival = _min_to_time(_time_to_min(stops_list[idx].get("departure_time", start_time)))
+
+            if hours_str:
+                is_open, hours_today = _is_open_at(hours_str, planned_arrival)
+                if not is_open:
+                    try:
+                        msg = llm.invoke([HumanMessage(content=
+                            f"The user wanted to add '{details['name']}' at {planned_arrival}, "
+                            f"but it's closed. Hours: {hours_today or 'unknown'}. "
+                            f"Write 2 friendly sentences saying it's closed and offer alternatives."
+                        )]).content.strip()
+                    except Exception:
+                        msg = f"**{details['name']}** is closed at {planned_arrival}. {hours_today}"
+                    raise PlaceUnavailableError(msg)
+
+            photo_url = None
+            if details.get("photo_reference") and api_key:
+                photo_url = f"https://places.googleapis.com/v1/{details['photo_reference']}/media?maxHeightPx=400&key={api_key}"
+
+            new_stop = {
+                "name": details["name"],
+                "visit_duration_min": suggestion.get("visit_duration_min", 60),
+                "description": f"Visit {details['name']} in Penang.",
+                "short_description": f"Visit {details['name']}",
+                "lat": geo.get("lat"), "lng": geo.get("lng"),
+                "rating": details.get("rating"),
+                "address": details.get("vicinity", ""),
+                "google_maps_url": f"https://www.google.com/maps/search/?api=1&query={details['name'].replace(' ', '+')}&query_place_id={place_id}",
+                "photo_url": photo_url,
+                "opening_hours": hours_str,
+                "phone": None, "travel_to_next": None,
+            }
+            logger.info(f"modify_itinerary: validated '{details['name']}' (rating={details.get('rating')})")
+            break
 
         if new_stop:
             if op["operation"] == "swap":
                 idx = (op.get("target_position", 1)) - 1
                 if 0 <= idx < len(stops_list):
                     stops_list[idx] = new_stop
-            else:  # add
+            else:
                 insert_after = op.get("insert_after")
                 if insert_after == "last":
                     stops_list.append(new_stop)

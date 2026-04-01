@@ -192,23 +192,29 @@ export default function PlanTripScreen() {
         <View style={styles.timeRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.label}>Start Time</Text>
-            <TextInput 
-              style={styles.timeInput} 
-              value={startTime} 
-              onChangeText={setStartTime} 
-              placeholder="09:00" 
-              placeholderTextColor={Colors.tabInactive} 
-            />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: scale(8) }}>
+              <View style={{ flexDirection: 'row', gap: scale(6) }}>
+                {['07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00'].map(t => (
+                  <TouchableOpacity key={t} onPress={() => setStartTime(t)}
+                    style={[styles.timeChip, startTime === t && styles.timeChipActive]}>
+                    <Text style={[styles.timeChipText, startTime === t && styles.timeChipTextActive]}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.label}>End Time</Text>
-            <TextInput 
-              style={styles.timeInput} 
-              value={endTime} 
-              onChangeText={setEndTime} 
-              placeholder="17:00" 
-              placeholderTextColor={Colors.tabInactive} 
-            />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: scale(8) }}>
+              <View style={{ flexDirection: 'row', gap: scale(6) }}>
+                {['14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00'].map(t => (
+                  <TouchableOpacity key={t} onPress={() => setEndTime(t)}
+                    style={[styles.timeChip, endTime === t && styles.timeChipActive]}>
+                    <Text style={[styles.timeChipText, endTime === t && styles.timeChipTextActive]}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
           </View>
         </View>
 
@@ -318,6 +324,13 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     ...Shadow.sm,
   },
+  timeChip: {
+    paddingHorizontal: scale(12), paddingVertical: scale(8), borderRadius: Radius.md,
+    borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.white,
+  },
+  timeChipActive: { backgroundColor: Colors.accent, borderColor: Colors.accent },
+  timeChipText: { fontSize: scale(13), color: Colors.textPrimary, fontWeight: '500' },
+  timeChipTextActive: { color: Colors.white },
   error: { color: Colors.error, fontSize: scale(12), marginTop: Spacing.sm },
   generateBtn: { 
     backgroundColor: Colors.accent, 

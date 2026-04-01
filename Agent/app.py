@@ -282,37 +282,50 @@ def _extract_tool_itinerary(state: dict):
     return None
 
 
-def _classify_intent(message: str) -> IntentType:
-    """Simple keyword-based intent classification."""
+def _classify_intent(message: str, has_itinerary: bool = False) -> IntentType:
+    """LLM-based intent classification with keyword fast-path."""
     msg_lower = message.lower()
 
-    # Greetings
+    # Fast-path: obvious greetings
     if any(w in msg_lower for w in ["hi", "hello", "hey", "good morning", "good afternoon"]):
         if len(msg_lower.split()) <= 3:
             return IntentType.GREETING
 
-    # Itinerary planning
-    plan_keywords = ["plan", "itinerary", "tour", "schedule", "day trip"]
-    if any(kw in msg_lower for kw in plan_keywords):
-        return IntentType.PLAN_ITINERARY
+    # If no active itinerary, can't modify
+    if not has_itinerary:
+        plan_keywords = ["plan", "itinerary", "tour", "schedule", "day trip"]
+        if any(kw in msg_lower for kw in plan_keywords):
+            return IntentType.PLAN_ITINERARY
+        return IntentType.GENERAL_QUESTION
 
-    # Modify existing itinerary
-    modify_keywords = [
-        "remove", "delete", "add", "change", "swap", "replace",
-        "modify", "update", "shorter", "longer", "adjust", "refactor",
-    ]
-    if any(kw in msg_lower for kw in modify_keywords):
-        return IntentType.MODIFY_ITINERARY
+    # LLM classifies intent when itinerary exists
+    try:
+        from src.itinerary_workflow import _create_llm
+        from langchain_core.messages import HumanMessage, SystemMessage
+        llm = _create_llm()
+        resp = llm.invoke([
+            SystemMessage(content="Classify the user's intent. Return ONLY one word: MODIFY, QUESTION, or PLAN"),
+            HumanMessage(content=f"""User has an active itinerary and says: "{message}"
 
-    # Place information
-    place_keywords = [
-        "where is", "tell me about", "what is", "details",
-        "opening hours", "how to get to", "rating",
-    ]
-    if any(kw in msg_lower for kw in place_keywords):
-        return IntentType.PLACE_INFO
+MODIFY = wants to change the itinerary (add/remove/swap/move stops, change duration, add food, etc.)
+QUESTION = asking about a place, directions, weather, general info
+PLAN = wants a completely new itinerary from scratch
 
-    return IntentType.GENERAL_QUESTION
+Return ONLY: MODIFY, QUESTION, or PLAN""")
+        ])
+        intent_str = resp.content.strip().upper()
+        if "MODIFY" in intent_str:
+            return IntentType.MODIFY_ITINERARY
+        elif "PLAN" in intent_str:
+            return IntentType.PLAN_ITINERARY
+        else:
+            return IntentType.GENERAL_QUESTION
+    except Exception:
+        # Fallback to keyword matching
+        modify_keywords = ["remove", "delete", "add", "change", "swap", "replace", "modify", "update", "shorter", "longer"]
+        if any(kw in msg_lower for kw in modify_keywords):
+            return IntentType.MODIFY_ITINERARY
+        return IntentType.GENERAL_QUESTION
 
 
 # =============================================================================
@@ -404,7 +417,7 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
             raise HTTPException(status_code=400, detail="Message is required")
 
         thread_id = chat_request.thread_id or str(uuid.uuid4())
-        intent = _classify_intent(user_message)
+        intent = _classify_intent(user_message, has_itinerary=bool(chat_request.current_itinerary))
 
         logger.info(
             f"Chat request received",
