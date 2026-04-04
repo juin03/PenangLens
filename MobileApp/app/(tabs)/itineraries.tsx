@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Spacing, scale } from '@/constants/theme';
 import { getItineraries, deleteItinerary, getToken } from '@/api/client';
 
@@ -119,11 +120,11 @@ export default function ItinerariesScreen() {
         </View>
       ) : trips.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyIcon}>🗺️</Text>
+          <Ionicons name="map-outline" size={scale(48)} color={Colors.textMuted} style={{ marginBottom: Spacing.md }} />
           <Text style={styles.emptyTitle}>No trips yet</Text>
           <Text style={styles.emptySubtitle}>Generate your first Penang itinerary!</Text>
           <TouchableOpacity style={styles.createBtn} onPress={() => router.push('/plan')}>
-            <Text style={styles.createBtnText}>Plan a Trip ✨</Text>
+            <Text style={styles.createBtnText}>Plan a Trip</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -152,13 +153,13 @@ export default function ItinerariesScreen() {
                   <View style={styles.cardTop}>
                     <Text style={styles.cardTitle} numberOfLines={2}>{item.name}</Text>
                     <TouchableOpacity onPress={() => handleDelete(item.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                      <Text style={styles.deleteIcon}>🗑️</Text>
+                      <Ionicons name="trash-outline" size={scale(16)} color="#ef4444" />
                     </TouchableOpacity>
                   </View>
                   <Text style={styles.cardDate}>{formatDate(item.createdAt)}</Text>
                   <View style={styles.cardMeta}>
-                    {item.stops && <Text style={styles.cardStat}>📍 {item.stops.length} stops</Text>}
-                    {item.totalDuration ? <Text style={styles.cardStat}>⏱️ {formatDuration(item.totalDuration)}</Text> : null}
+                    {item.stops && <Text style={styles.cardStat}><Ionicons name="location-outline" size={scale(12)} color={Colors.textMuted} /> {item.stops.length} stops</Text>}
+                    {item.totalDuration ? <Text style={styles.cardStat}><Ionicons name="time-outline" size={scale(12)} color={Colors.textMuted} /> {formatDuration(item.totalDuration)}</Text> : null}
                   </View>
                 </TouchableOpacity>
               </>

@@ -3,13 +3,19 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
+
+const GoogleMap = dynamic(() => import('@/components/GoogleMap'), { ssr: false });
 
 interface SpotData {
   id: string; name: string; type: string; status: string;
   description?: string; location?: string;
   content?: { overview?: string; history?: string; culture?: string; funFacts?: string };
   images?: { id: string; url: string; filename: string }[];
+  tags?: string[];
 }
+
+const ALL_TAGS = ['Heritage', 'Historical', 'Food', 'Nature', 'Adventure', 'Art', 'Religious', 'Architecture', 'Shopping', 'Culture'];
 
 const TABS = ['Overview', 'History', 'Culture', 'Fun Facts'] as const;
 const TAB_KEYS = ['overview', 'history', 'culture', 'funFacts'] as const;
@@ -202,11 +208,43 @@ export default function SpotDetailPage() {
                   <label className="form-label">Location (GPS coordinates only)</label>
                   <input className="form-input" placeholder="e.g. 5.421500,100.335100"
                     value={spot.location || ''} onChange={e => { setSpot(p => p ? { ...p, location: e.target.value } : p); setDirty(true); }} />
+                  <div style={{ marginTop: 8 }}>
+                    <GoogleMap
+                      height={220}
+                      center={spot.location && isValidLatLng(spot.location) ? { lat: parseFloat(spot.location.split(',')[0]), lng: parseFloat(spot.location.split(',')[1]) } : undefined}
+                      markers={spot.location && isValidLatLng(spot.location) ? [{ lat: parseFloat(spot.location.split(',')[0]), lng: parseFloat(spot.location.split(',')[1]), label: spot.name }] : []}
+                      onMapClick={(lat, lng) => { setSpot(p => p ? { ...p, location: `${lat.toFixed(6)},${lng.toFixed(6)}` } : p); setDirty(true); }}
+                    />
+                  </div>
                 </div>
                 <div style={{ gridColumn: '1/-1' }}>
                   <label className="form-label">Short Description</label>
                   <textarea className="form-textarea" rows={3} placeholder="Brief tagline description..."
                     value={spot.description || ''} onChange={e => { setSpot(p => p ? { ...p, description: e.target.value } : p); setDirty(true); }} />
+                </div>
+                <div style={{ gridColumn: '1/-1' }}>
+                  <label className="form-label">Tags</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {ALL_TAGS.map(tag => {
+                      const active = spot.tags?.includes(tag);
+                      return (
+                        <button key={tag} type="button" onClick={() => {
+                          setSpot(p => {
+                            if (!p) return p;
+                            const current = p.tags || [];
+                            const next = active ? current.filter(t => t !== tag) : [...current, tag];
+                            return { ...p, tags: next };
+                          });
+                          setDirty(true);
+                        }} style={{
+                          padding: '4px 12px', borderRadius: 16, border: '1px solid', cursor: 'pointer', fontSize: 12, fontWeight: 500,
+                          borderColor: active ? '#2563eb' : '#d1d5db',
+                          background: active ? '#2563eb' : '#fff',
+                          color: active ? '#fff' : '#374151',
+                        }}>{tag}</button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
@@ -347,14 +385,6 @@ export default function SpotDetailPage() {
             </div>
           </div>
 
-          {/* Map placeholder */}
-          <div className="card" style={{ marginTop: 16, overflow: 'hidden' }}>
-            <div style={{ height: 160, background: '#e8f0fe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8, color: '#6b7280', fontSize: 13 }}>
-              <span style={{ fontSize: 28 }}>🗺️</span>
-              <span>{spot.location ? spot.location : 'No location set'}</span>
-              {spot.location && <a href={`https://maps.google.com/?q=${encodeURIComponent(spot.location)}`} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 12 }}>Open in Maps ↗</a>}
-            </div>
-          </div>
         </div>
       </div>
 

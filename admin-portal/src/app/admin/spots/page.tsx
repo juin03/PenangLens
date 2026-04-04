@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic';
 
 const GoogleMap = dynamic(() => import('@/components/GoogleMap'), { ssr: false });
 
-const CATEGORY_TAGS = ['Heritage', 'Religious', 'Architecture', 'Nature', 'Food & Culture', 'Historical', 'Waterfront', 'Shopping'];
+const CATEGORY_TAGS = ['Heritage', 'Historical', 'Food', 'Nature', 'Adventure', 'Art', 'Religious', 'Architecture', 'Shopping', 'Culture'];
 
 interface Spot {
   id: string; name: string; type: 'landmark' | 'poi';
@@ -50,7 +50,7 @@ export default function SpotsPage() {
   // POI form
   const [poiForm, setPoiForm] = useState({
     name: '', description: '', landmarkId: '', location: '', lat: '', lng: '',
-    searchPrompts: '', status: 'draft',
+    status: 'draft',
   });
 
   useEffect(() => { fetchSpots(); }, []);
@@ -102,7 +102,7 @@ export default function SpotsPage() {
     setImages([]);
     setIndexingCount(0);
     setLmForm({ name: '', description: '', location: '', lat: '', lng: '', tags: [], status: 'draft' });
-    setPoiForm({ name: '', description: '', landmarkId: '', location: '', lat: '', lng: '', searchPrompts: '', status: 'draft' });
+    setPoiForm({ name: '', description: '', landmarkId: '', location: '', lat: '', lng: '', status: 'draft' });
     setShowModal(true);
   };
 
@@ -138,7 +138,7 @@ export default function SpotsPage() {
       const res = await fetch('/api/admin/spots', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('admin_token')}` },
-        body: JSON.stringify({ type: 'poi', name: poiForm.name, description: poiForm.description, location, landmarkId: poiForm.landmarkId, searchPrompts: poiForm.searchPrompts.split(',').map(s => s.trim()).filter(Boolean), status: poiForm.status }),
+        body: JSON.stringify({ type: 'poi', name: poiForm.name, description: poiForm.description, location, landmarkId: poiForm.landmarkId, status: poiForm.status }),
       });
       const data = await res.json();
       const newId = data.spot?.id || data.id;
@@ -427,10 +427,6 @@ export default function SpotsPage() {
 
                 <label className="form-label">Short Description *</label>
                 <textarea className="form-textarea" rows={2} style={{ marginBottom: 14 }} placeholder="What is this specific element?" value={poiForm.description} onChange={e => setPoiForm(p => ({ ...p, description: e.target.value }))} />
-
-                <label className="form-label">Search Prompts * <span style={{ color: '#9ca3af', fontWeight: 400 }}>(comma-separated keywords for VisionML)</span></label>
-                <input className="form-input" style={{ marginBottom: 14 }} placeholder="e.g. red pagoda, seven storey tower, kek lok si pagoda" value={poiForm.searchPrompts} onChange={e => setPoiForm(p => ({ ...p, searchPrompts: e.target.value }))} />
-                <p style={{ fontSize: 11.5, color: '#9ca3af', marginTop: -10, marginBottom: 14 }}>💡 These help the AI recognise this specific POI when a user scans it.</p>
 
                 <label className="form-label">GPS Location * <span style={{ color: '#9ca3af', fontWeight: 400 }}>— click the map, or type coordinates</span></label>
                 <div style={{ display: 'flex', gap: 10, marginBottom: 8 }}>

@@ -101,14 +101,19 @@ export default function ScanScreen() {
         </View>
       ) : (
         <CameraView ref={cameraRef} style={styles.camera} facing="back" flash={flash ? 'on' : 'off'}>
-          {/* Top bar */}
+          {/* Top bar — flash only */}
           <View style={[styles.topBar, { paddingTop: insets.top + scale(10) }]}>
-            <TouchableOpacity style={styles.topBtn}><Text style={styles.topIcon}>📍</Text></TouchableOpacity>
             <View style={{ flex: 1 }} />
             <TouchableOpacity style={styles.topBtn} onPress={() => setFlash(!flash)}>
-              <Text style={styles.topIcon}>{flash ? '⚡' : '💡'}</Text>
+              <View style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{ width: 2, height: 14, backgroundColor: flash ? '#fbbf24' : '#fff', borderRadius: 1 }} />
+                {flash && <>
+                  <View style={{ position: 'absolute', width: 14, height: 2, backgroundColor: '#fbbf24', borderRadius: 1 }} />
+                  <View style={{ position: 'absolute', width: 10, height: 2, backgroundColor: '#fbbf24', borderRadius: 1, transform: [{ rotate: '45deg' }] }} />
+                  <View style={{ position: 'absolute', width: 10, height: 2, backgroundColor: '#fbbf24', borderRadius: 1, transform: [{ rotate: '-45deg' }] }} />
+                </>}
+              </View>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.topBtn}><Text style={styles.topIcon}>⚙️</Text></TouchableOpacity>
           </View>
 
           {/* Viewfinder hint */}
@@ -118,13 +123,17 @@ export default function ScanScreen() {
 
           {/* Bottom bar */}
           <View style={styles.bottomBar}>
-            <TouchableOpacity style={styles.sideBtn} onPress={handlePickFromLibrary}><Text style={styles.sideIcon}>🖼️</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.sideBtn} onPress={handlePickFromLibrary}>
+              <View style={{ width: 26, height: 26, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{ width: 18, height: 18, borderRadius: 3, borderWidth: 2, borderColor: '#fff' }} />
+              </View>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.captureBtn} onPress={handleCapture}>
               <View style={styles.captureOuter}>
                 <View style={styles.captureInner} />
               </View>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.sideBtn}><Text style={styles.sideIcon}>🔄</Text></TouchableOpacity>
+            <View style={styles.sideBtn} />
           </View>
         </CameraView>
       )}

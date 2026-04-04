@@ -84,6 +84,7 @@ class ItineraryStop(BaseModel):
     """A single stop in a structured itinerary."""
     order: int = Field(description="Stop number (1-indexed)")
     name: str = Field(description="Name of the place")
+    category: str = Field(default="attraction", description="Stop category: food, heritage, shopping, nature, art, attraction")
     short_description: str = Field(
         default="",
         description="One-line summary for card view (max 60 chars)"
@@ -153,6 +154,22 @@ class ChatRequest(BaseModel):
     current_itinerary: Optional[dict] = Field(
         default=None,
         description="Current structured itinerary JSON (for itinerary_chat context)"
+    )
+    spot_id: Optional[str] = Field(
+        default=None,
+        description="Landmark/POI ID for landmark_chat context"
+    )
+    spot_content: Optional[dict] = Field(
+        default=None,
+        description="Curated landmark content {overview, history, culture, funFacts} for landmark_chat"
+    )
+    detected_classes: Optional[list] = Field(
+        default=None,
+        description="Classes detected in scan [{class, confidence}]"
+    )
+    all_classes: Optional[list] = Field(
+        default=None,
+        description="All possible classes for this landmark (detected + undetected)"
     )
 
 class ChatResponse(BaseModel):

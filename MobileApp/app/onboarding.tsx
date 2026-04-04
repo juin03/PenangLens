@@ -27,11 +27,11 @@ const LEGACY_TO_CANONICAL: Record<string, string> = {
 const ALL_INTERESTS = [
   { label: 'Heritage', icon: '🏛️', description: 'Historic districts, traditions, and cultural identity.' },
   { label: 'Food', icon: '🍜', description: 'Hawker culture, local dishes, and authentic flavors.' },
-  { label: 'Nature', icon: '🌿', description: 'Parks, hills, gardens, and scenic views.' },
+  { label: 'Nature', icon: '🌿', description: 'Parks, hills, gardens, beaches, and scenic views.' },
   { label: 'Art', icon: '🎨', description: 'Street art, galleries, exhibits, and creative spaces.' },
   { label: 'Religious', icon: '🛕', description: 'Temples, mosques, churches, and spiritual landmarks.' },
-  { label: 'Shopping', icon: '🛍️', description: 'Malls, markets, souvenirs, and local finds.' },
-  { label: 'Historical', icon: '📜', description: 'Monuments, colonial stories, and key past events.' },
+  { label: 'Shopping', icon: '🛍️', description: 'Malls, markets, night markets, and local finds.' },
+  { label: 'Culture', icon: '🎭', description: 'Cultural experiences, traditions, and local customs.' },
   { label: 'Architecture', icon: '🏗️', description: 'Beautiful building styles and landmark design.' },
 ];
 

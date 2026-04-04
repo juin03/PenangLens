@@ -14,7 +14,7 @@ interface Stop {
   order?: number; name: string; visit_duration_min?: number;
   short_description?: string; description?: string; google_maps_url?: string;
   photo_url?: string; lat?: number; lng?: number;
-  rating?: number; address?: string; opening_hours?: string; phone?: string;
+  rating?: number; address?: string; opening_hours?: string; phone?: string; tips?: string;
   arrival_time?: string; departure_time?: string;
   travel_to_next?: { duration_text: string; distance_text: string };
 }
@@ -561,7 +561,7 @@ export default function ItineraryScreen() {
 
       {/* Quick suggestions */}
       <View style={styles.suggestRow}>
-        {['Add more food', 'Make it shorter', 'Add a cafe', 'What time to start?'].map(q => (
+        {['Add more food', 'Make it shorter', 'Add a cafe'].map(q => (
           <TouchableOpacity key={q} style={styles.suggestBtn} onPress={() => setInput(q)}>
             <Text style={styles.suggestText}>{q}</Text>
           </TouchableOpacity>
@@ -659,7 +659,11 @@ export default function ItineraryScreen() {
                 {selectedStop?.description ? (
                   <Text style={styles.stopModalDesc}>{selectedStop.description}</Text>
                 ) : null}
-                
+                {selectedStop?.tips ? (
+                  <View style={{ backgroundColor: '#fef3c7', padding: 10, borderRadius: 8, marginTop: 8 }}>
+                    <Text style={{ fontSize: scale(13), color: '#92400e' }}>{selectedStop.tips}</Text>
+                  </View>
+                ) : null}                
                 {/* Phone */}
                 {selectedStop?.phone ? (
                   <TouchableOpacity onPress={() => Linking.openURL(`tel:${selectedStop.phone}`)}>

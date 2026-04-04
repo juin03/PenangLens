@@ -1,24 +1,23 @@
 import { Tabs } from 'expo-router';
 import { Text, View, StyleSheet, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors, scale } from '@/constants/theme';
 
 function TabIcon({
-  icon,
+  iconName,
   label,
   color,
   focused,
 }: {
-  icon: string;
+  iconName: keyof typeof Ionicons.glyphMap;
   label: string;
   color: string;
   focused: boolean;
 }) {
   return (
     <View style={styles.tabItem}>
-      <Text style={[styles.tabIcon, { opacity: focused ? 1 : 0.7 }]}>
-        {icon}
-      </Text>
+      <Ionicons name={iconName} size={scale(24)} color={color} style={{ opacity: focused ? 1 : 0.7 }} />
       <Text
         numberOfLines={1}
         adjustsFontSizeToFit
@@ -58,7 +57,7 @@ export default function TabLayout() {
             <TouchableOpacity {...props} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }} />
           ),
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon icon="🧭" label="Discover" color={color} focused={focused} />
+            <TabIcon iconName={focused ? "compass" : "compass-outline"} label="Discover" color={color} focused={focused} />
           ),
         }}
       />
@@ -71,7 +70,7 @@ export default function TabLayout() {
             <TouchableOpacity {...props} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }} />
           ),
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon icon="📷" label="Scan" color={color} focused={focused} />
+            <TabIcon iconName={focused ? "scan" : "scan-outline"} label="Scan" color={color} focused={focused} />
           ),
         }}
       />
@@ -84,7 +83,7 @@ export default function TabLayout() {
             <TouchableOpacity {...props} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }} />
           ),
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon icon="🗺️" label="Trips" color={color} focused={focused} />
+            <TabIcon iconName={focused ? "map" : "map-outline"} label="Trips" color={color} focused={focused} />
           ),
         }}
       />
@@ -97,7 +96,7 @@ export default function TabLayout() {
             <TouchableOpacity {...props} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }} />
           ),
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon icon="👤" label="Profile" color={color} focused={focused} />
+            <TabIcon iconName={focused ? "person" : "person-outline"} label="Profile" color={color} focused={focused} />
           ),
         }}
       />
@@ -116,11 +115,8 @@ const styles = StyleSheet.create({
     gap: 2,
     width: '100%',
   },
-  tabIcon: {
-    fontSize: scale(20),
-  },
   tabLabel: {
-    fontSize: scale(10),
+    fontSize: scale(11),
     fontWeight: '500',
   },
 });

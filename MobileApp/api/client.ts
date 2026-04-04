@@ -5,9 +5,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const getBaseUrl = () => {
   if (__DEV__) {
-    const LAN_IP = '10.106.120.159';
-    if (Platform.OS === 'web') return 'http://localhost:3000';
-    return `http://${LAN_IP}:3000`;
+    const LAN_IP = '192.168.0.192';
+    if (Platform.OS === 'web') return 'http://localhost';
+    return `http://${LAN_IP}`;
   }
   return 'https://your-production-url.com';
 };

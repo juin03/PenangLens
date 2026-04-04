@@ -120,7 +120,8 @@ export default function SpotDetailScreen() {
         `[About ${spot?.name ?? nameParam}] ${userMsg}`,
         threadId ?? `spot_${spotId}`,
         spotId,
-        "landmark_chat"
+        "landmark_chat",
+        { spot_content: spot?.content },
       );
       let fullResponse = '';
       

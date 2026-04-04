@@ -16,3 +16,7 @@ VisionML/uploads/
 Agent/node_modules/
 Agent/dist/
 *.md
+
+agent.json
+visionsleep.json
+*.webp

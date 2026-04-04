@@ -1,13 +1,16 @@
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, FlatList, ActivityIndicator, Image,
+  ScrollView, FlatList, ActivityIndicator, Image, Modal, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import MapView, { PROVIDER_GOOGLE, Marker, Callout, Region } from 'react-native-maps';
-import { useState, useEffect, useCallback } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { streamChat } from '@/api/streaming';
+import { MarkdownText } from '@/components/MarkdownText';
 import { Colors, Radius, Spacing, scale, SCREEN_WIDTH } from '@/constants/theme';
 import { API_BASE_URL } from '@/api/client';
 
@@ -15,7 +18,7 @@ import { API_BASE_URL } from '@/api/client';
 const BFF_BASE = API_BASE_URL.replace('/api/v1', '');
 const MAP_API = `${BFF_BASE}/api/spots/map`;
 
-const CATEGORIES = ['All', 'Heritage', 'Food', 'Nature', 'Art', 'Religious', 'Shopping', 'Historical', 'Architecture'];
+const CATEGORIES = ['All', 'Heritage', 'Food', 'Nature', 'Art', 'Religious', 'Shopping', 'Culture', 'Architecture'];
 const CARD_WIDTH = (SCREEN_WIDTH - Spacing.lg * 2 - Spacing.sm) / 2;
 const PENANG_REGION: Region = { latitude: 5.4164, longitude: 100.3327, latitudeDelta: 0.18, longitudeDelta: 0.18 };
 
@@ -35,6 +38,41 @@ export default function DiscoverScreen() {
   const [spots, setSpots] = useState<MapSpot[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Chat state
+  interface ChatMsg { role: 'user' | 'assistant'; content: string }
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [chatMessages, setChatMessages] = useState<ChatMsg[]>([
+    { role: 'assistant', content: 'Hi! Ask me anything about Penang — places to visit, food, history, tips 🌴' },
+  ]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatThreadId, setChatThreadId] = useState<string | undefined>();
+  const chatListRef = useRef<FlatList>(null);
+
+  const sendChat = async () => {
+    const msg = chatInput.trim();
+    if (!msg || chatLoading) return;
+    setChatInput('');
+    setChatMessages(prev => [...prev, { role: 'user', content: msg }]);
+    setChatLoading(true);
+    const aiIdx = chatMessages.length + 1;
+    setChatMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+    try {
+      const stream = streamChat(msg, chatThreadId ?? `discover_${Date.now()}`, undefined, 'general_chat');
+      let full = '';
+      for await (const update of stream) {
+        if (update.type === 'chunk') {
+          full += update.content;
+          setChatMessages(prev => { const m = [...prev]; m[aiIdx] = { role: 'assistant', content: full }; return m; });
+        } else if (update.type === 'complete') {
+          setChatThreadId(update.data?.thread_id);
+        }
+      }
+    } catch {
+      setChatMessages(prev => { const m = [...prev]; m[aiIdx] = { role: 'assistant', content: 'Connection error. Try again.' }; return m; });
+    } finally { setChatLoading(false); }
+  };
 
   const loadSpots = useCallback(async () => {
     try {
@@ -237,11 +275,85 @@ export default function DiscoverScreen() {
         </>
       )}
 
-      {/* Floating Plan Itinerary button */}
-      <TouchableOpacity style={styles.fab} onPress={() => router.push('/plan')}>
-        <Text style={styles.fabIcon}>✨</Text>
-        <Text style={styles.fabText}>Plan Itinerary</Text>
+      {/* Floating chat button */}
+      <TouchableOpacity
+        style={[styles.fab, { backgroundColor: Colors.accent, position: 'absolute', bottom: 20, right: 16 }]}
+        onPress={() => setChatOpen(true)}>
+        <Ionicons name="chatbubble-ellipses" size={16} color={Colors.white} />
+        <Text style={styles.fabText}>Ask AI</Text>
       </TouchableOpacity>
+
+      {/* Chat Modal */}
+      <Modal visible={chatOpen} animationType="slide" transparent onRequestClose={() => setChatOpen(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' }}>
+            <View style={{ flex: 1, marginTop: insets.top + 20, backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' }}>
+              {/* Header */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons name="chatbubble-ellipses" size={20} color={Colors.primary} />
+                  <Text style={{ fontSize: 17, fontWeight: '700', color: Colors.text }}>Ask about Penang</Text>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
+                  <TouchableOpacity onPress={() => {
+                    setChatMessages([{ role: 'assistant', content: 'Hi! Ask me anything about Penang — places to visit, food, history, tips 🌴' }]);
+                    setChatThreadId(undefined);
+                  }}>
+                    <Text style={{ fontSize: 14, color: Colors.primary }}>Reset</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setChatOpen(false)}>
+                    <Text style={{ fontSize: 22, color: '#94a3b8' }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              {/* Messages */}
+              <FlatList
+                ref={chatListRef}
+                data={chatMessages}
+                keyExtractor={(_, i) => String(i)}
+                contentContainerStyle={{ padding: 16, paddingBottom: 8 }}
+                onContentSizeChange={() => chatListRef.current?.scrollToEnd({ animated: true })}
+                renderItem={({ item }) => (
+                  <View style={{
+                    alignSelf: item.role === 'user' ? 'flex-end' : 'flex-start',
+                    maxWidth: '80%', marginBottom: 8,
+                    backgroundColor: item.role === 'user' ? Colors.primary : Colors.white,
+                    borderRadius: Radius.lg, padding: scale(10),
+                    borderBottomRightRadius: item.role === 'user' ? scale(4) : Radius.lg,
+                    borderBottomLeftRadius: item.role === 'user' ? Radius.lg : scale(4),
+                    borderWidth: item.role === 'user' ? 0 : 1,
+                    borderColor: Colors.border,
+                  }}>
+                    {item.role === 'user' ? (
+                      <Text style={{ color: Colors.white, fontSize: scale(13) }}>{item.content}</Text>
+                    ) : (
+                      <MarkdownText style={{ fontSize: scale(13), color: Colors.text }}>{item.content || '...'}</MarkdownText>
+                    )}
+                  </View>
+                )}
+              />
+              {/* Input */}
+              <View style={{ flexDirection: 'row', padding: 12, borderTopWidth: 1, borderTopColor: Colors.border, paddingBottom: 12, gap: 8 }}>
+                <TextInput
+                  style={{ flex: 1, backgroundColor: Colors.backgroundAlt || '#f1f5f9', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: scale(13) }}
+                  placeholder="Ask anything about Penang..."
+                  placeholderTextColor={Colors.textMuted}
+                  value={chatInput}
+                  onChangeText={setChatInput}
+                  onSubmitEditing={sendChat}
+                  editable={!chatLoading}
+                />
+                <TouchableOpacity
+                  onPress={sendChat}
+                  disabled={chatLoading || !chatInput.trim()}
+                  style={{ backgroundColor: chatInput.trim() ? Colors.primary : Colors.border, borderRadius: 20, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: Colors.white, fontSize: 16 }}>↑</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -326,7 +438,6 @@ const styles = StyleSheet.create({
   placeDist: { fontSize: scale(10), color: Colors.textMuted, flex: 1, textAlign: 'right' },
 
   fab: {
-    position: 'absolute', bottom: scale(16), alignSelf: 'center',
     backgroundColor: Colors.accent, borderRadius: Radius.full,
     flexDirection: 'row', alignItems: 'center', gap: scale(6),
     paddingVertical: scale(12), paddingHorizontal: scale(20),

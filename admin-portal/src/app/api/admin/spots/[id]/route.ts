@@ -14,7 +14,8 @@ function isValidLatLng(location: string): boolean {
 /** Fire-and-forget: index spot into Azure AI Search via Agent microservice */
 async function triggerIndex(spot: {
   id: string; name: string; type: string; description?: string | null;
-  tags?: string[]; searchPrompts?: string[]; parentLandmarkName?: string;
+  tags?: string[]; parentLandmarkName?: string;
+  location?: string | null; content?: any;
 }) {
   try {
     await fetch(`${AGENT_BASE_URL}/index`, {
@@ -113,7 +114,7 @@ export async function PATCH(
 ) {
   const { id } = await params;
   const body = await request.json();
-  const { name, description, location, status, content, type } = body;
+  const { name, description, location, status, content, type, tags } = body;
 
   if (location && !isValidLatLng(location)) {
     return NextResponse.json({ error: 'Location must be valid GPS coordinates in lat,lng format' }, { status: 400 });
@@ -130,14 +131,14 @@ export async function PATCH(
       });
       // Trigger RAG indexing when published
       if (status === 'published') {
-        const searchPrompts = Array.isArray(updatedSpot.searchPrompts) ? updatedSpot.searchPrompts : [];
         await triggerIndex({
           id,
           name: updatedSpot.name,
           type: 'poi',
           description: updatedSpot.description,
-          searchPrompts,
+          content: updatedSpot.content,
           parentLandmarkName: updatedSpot.landmark?.name,
+          location: updatedSpot.location,
         });
       } else if (status === 'draft') {
         // Unpublished — remove from index
@@ -151,6 +152,15 @@ export async function PATCH(
         data: { name, description, location, status, content },
         include: { tags: { include: { tag: true } } },
       });
+      // Update tags if provided
+      if (Array.isArray(tags)) {
+        await prisma.landmarkTag.deleteMany({ where: { landmarkId: id } });
+        for (const tagName of tags) {
+          const tag = await prisma.tag.upsert({ where: { name: tagName }, update: {}, create: { name: tagName } });
+          await prisma.landmarkTag.create({ data: { landmarkId: id, tagId: tag.id } });
+        }
+        updatedSpot = await prisma.landmark.findUnique({ where: { id }, include: { tags: { include: { tag: true } } } });
+      }
       // Trigger RAG indexing when published
       if (status === 'published') {
         const tags = updatedSpot.tags?.map((t: any) => t.tag.name) ?? [];
@@ -159,7 +169,9 @@ export async function PATCH(
           name: updatedSpot.name,
           type: 'landmark',
           description: updatedSpot.description,
+          content: updatedSpot.content,
           tags,
+          location: updatedSpot.location,
         });
       } else if (status === 'draft') {
         await triggerDeleteIndex(id);

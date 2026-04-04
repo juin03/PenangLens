@@ -25,7 +25,8 @@ export async function* streamChat(
   message: string,
   threadId?: string,
   spotId?: string,
-  context?: string
+  context?: string,
+  extra?: { spot_content?: any; detected_classes?: any[]; all_classes?: string[] },
 ): AsyncGenerator<StreamUpdate> {
   const headers = await getAuthHeaders();
   
@@ -37,6 +38,7 @@ export async function* streamChat(
       thread_id: threadId,
       spot_id: spotId,
       context,
+      ...(extra || {}),
     }),
   });
 
@@ -57,13 +59,14 @@ export async function* streamChat(
     buffer = lines.pop() || '';
 
     for (const line of lines) {
-      if (line.startsWith('data: ')) {
+      const trimmed = line.replace(/\r/g, '');
+      if (trimmed.startsWith('data: ')) {
         try {
-          const data = JSON.parse(line.slice(6));
+          const data = JSON.parse(trimmed.slice(6));
           
           if (data.type === 'token') {
             yield { type: 'chunk', content: data.content };
-          } else if (data.type === 'complete') {
+          } else if (data.type === 'done' || data.type === 'complete') {
             yield { type: 'complete', data: data };
           } else if (data.type === 'error') {
             yield { type: 'error', message: data.message };

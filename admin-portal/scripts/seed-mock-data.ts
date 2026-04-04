@@ -64,7 +64,7 @@ const MOCK_DATA = [
     description: 'The largest standing fort in Malaysia, built by the British East India Company in the late 18th century at the very spot where Captain Francis Light first landed.',
     location: '5.4206,100.3440',
     status: 'published',
-    tags: ['Heritage', 'Historical'],
+    tags: ['Heritage'],
     content: {
       overview: 'Fort Cornwallis stands at the northeastern tip of Penang Island, occupying the exact site where Captain Francis Light landed on 11 August 1786 to establish the British settlement. It is the largest standing fort in Malaysia and one of the best-preserved examples of British colonial military architecture in Southeast Asia. The fort takes the form of a classic star fort — a design developed in Renaissance Europe to deflect cannon fire — with five bastions projecting outward from a central parade ground. Today the fort is a popular heritage attraction, housing a small amphitheatre, a chapel, a lighthouse, historic cannons, and the statue of Francis Light.',
       history: 'The original fort was constructed in 1786 from nibong palm trunks as a temporary defensive structure. Between 1804 and 1805, it was rebuilt in brick by convict labor under the supervision of the East India Company. The fort was named after Charles Cornwallis, the Governor-General of India at the time. Despite its imposing appearance, Fort Cornwallis never fired its cannons in anger — it was never attacked. During World War II, the Japanese used the fort as an internment camp for Allied prisoners of war. After independence, it was gazetted as a national monument.',
@@ -193,7 +193,7 @@ const MOCK_DATA = [
     description: 'A gleaming white Jubilee clock tower standing 60 feet tall, commissioned to commemorate Queen Victoria\'s Diamond Jubilee in 1897.',
     location: '5.4184,100.3437',
     status: 'published',
-    tags: ['Heritage', 'Historical'],
+    tags: ['Heritage'],
     content: {
       overview: 'The Queen Victoria Memorial Clock Tower is one of the most recognizable landmarks in George Town, standing at the busy intersection of Light Street and Beach Street near the waterfront. The tower is a slender, elegant structure built in the Moorish style, with a clock face on each of its four sides and a pointed spire at the top. It was built to commemorate the Diamond Jubilee of Queen Victoria in 1897 and stands exactly 60 feet tall — one foot for each year of her reign.',
       history: 'The clock tower was commissioned and funded by a wealthy Chinese businessman, Cheah Chen Eok, as a gift to the people of Penang to mark Queen Victoria\'s 60th year on the throne. It was completed in 1897 and has stood at the same location ever since. During World War II, the tower was damaged by Allied bombing raids targeting the Japanese-occupied port. The damage caused the tower to lean slightly to one side, a tilt that is still visible today and has become part of its character.',

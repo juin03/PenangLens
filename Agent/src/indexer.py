@@ -118,6 +118,8 @@ def ensure_text_index_exists():
             type=SearchFieldDataType.Collection(SearchFieldDataType.String),
             searchable=True, filterable=True,
         ),
+        SimpleField(name="lat", type=SearchFieldDataType.Double, filterable=True),
+        SimpleField(name="lng", type=SearchFieldDataType.Double, filterable=True),
         SearchField(
             name="vector_768",
             type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
@@ -172,19 +174,30 @@ def _build_chunks(spot: dict) -> list[dict]:
     Each chunk becomes one document in Azure AI Search.
 
     spot dict keys: id, name, type, description, tags (list[str]),
-                    searchPrompts (list[str], POI only), parentLandmarkName (POI only)
+                    parentLandmarkName (POI only), content (dict, optional)
     """
     spot_id   = spot.get("id", "")
     spot_type = spot.get("type", "")          # 'landmark' | 'poi'
     name      = spot.get("name", "")
     desc      = spot.get("description", "")
     tags      = spot.get("tags", [])
-    prompts   = spot.get("searchPrompts", [])
     parent    = spot.get("parentLandmarkName", "")
+    content   = spot.get("content") or {}
 
+    # Parse location
+    lat, lng = None, None
+    loc = spot.get("location", "")
+    if loc:
+        try:
+            parts = loc.split(",")
+            lat, lng = float(parts[0].strip()), float(parts[1].strip())
+        except (ValueError, IndexError):
+            pass
+
+    MAX_CHUNK_CHARS = 1500  # ~375 tokens, safe for embedding models
     chunks = []
 
-    # Chunk 1 — Overview (rich content, best for general questions)
+    # Chunk 1 — Overview (short description for quick matching)
     overview_parts = [f"{name} is a {'landmark' if spot_type == 'landmark' else 'point of interest'} in Penang, Malaysia."]
     if desc:
         overview_parts.append(desc)
@@ -197,26 +210,43 @@ def _build_chunks(spot: dict) -> list[dict]:
         "spotType": spot_type,
         "name":     name,
         "section":  "overview",
-        "content":  " ".join(overview_parts),
+        "content":  " ".join(overview_parts)[:MAX_CHUNK_CHARS],
         "tags":     tags,
+        "lat":      lat,
+        "lng":      lng,
     })
 
     # Chunk 2 — Tags & categories (helps filter-style queries)
-    if tags or prompts:
-        tag_text_parts = []
-        if tags:
-            tag_text_parts.append(f"{name} is categorized as: {', '.join(tags)}.")
-        if prompts:
-            tag_text_parts.append(f"Visual features include: {', '.join(prompts)}.")
+    if tags:
+        tag_text = f"{name} is categorized as: {', '.join(tags)}."
         chunks.append({
             "id":       f"{spot_id}_tags",
             "spotId":   spot_id,
             "spotType": spot_type,
             "name":     name,
             "section":  "tags",
-            "content":  " ".join(tag_text_parts),
+            "content":  tag_text,
             "tags":     tags,
+            "lat":      lat,
+            "lng":      lng,
         })
+
+    # Chunks 3-6 — Rich content sections (if available)
+    section_map = {"overview": "about", "history": "history", "culture": "culture", "funFacts": "funfacts"}
+    for content_key, section_name in section_map.items():
+        text = content.get(content_key, "")
+        if text and len(text.strip()) > 20:
+            chunks.append({
+                "id":       f"{spot_id}_{section_name}",
+                "spotId":   spot_id,
+                "spotType": spot_type,
+                "name":     name,
+                "section":  section_name,
+                "content":  f"{name} — {text.strip()}"[:MAX_CHUNK_CHARS],
+                "tags":     tags,
+                "lat":      lat,
+                "lng":      lng,
+            })
 
     return chunks
 
@@ -283,17 +313,21 @@ def delete_spot(spot_id: str) -> bool:
         return False
 
 
-def search_context(query: str, top_k: int = 3, spot_type: Optional[str] = None) -> list[dict]:
+def search_context(query: str, top_k: int = 3, spot_type: Optional[str] = None,
+                   lat: Optional[float] = None, lng: Optional[float] = None, radius_km: float = 5.0,
+                   vector_only: bool = False) -> list[dict]:
     """
     Hybrid search (HNSW vector + BM25 keyword) for RAG context retrieval.
 
     Args:
-        query:     The user's natural language question.
-        top_k:     Number of chunks to return.
-        spot_type: Optional filter — 'landmark' or 'poi'.
+        query:      The user's natural language question.
+        top_k:      Number of chunks to return.
+        spot_type:  Optional filter — 'landmark' or 'poi'.
+        lat, lng:   Optional center point for location filtering.
+        radius_km:  Radius in km for bounding box (default 5km).
 
     Returns:
-        List of dicts with keys: name, section, content, tags, score.
+        List of dicts with keys: name, section, content, tags, score, lat, lng.
     """
     if not AZURE_ENDPOINT or "your-search-service" in AZURE_ENDPOINT:
         return []
@@ -304,18 +338,26 @@ def search_context(query: str, top_k: int = 3, spot_type: Optional[str] = None) 
 
         vector_query = VectorizedQuery(
             vector=query_vec,
-            k_nearest_neighbors=top_k,
+            k_nearest_neighbors=max(50, top_k * 5),
             fields="vector_768",
         )
 
-        filter_expr = f"spotType eq '{spot_type}'" if spot_type else None
+        # Build filter expression
+        filters = []
+        if spot_type:
+            filters.append(f"spotType eq '{spot_type}'")
+        if lat is not None and lng is not None:
+            # Bounding box: ~0.009 per km latitude, ~0.011 per km longitude at equator
+            dlat = radius_km * 0.009
+            dlng = radius_km * 0.011
+            filters.append(f"lat ge {lat - dlat} and lat le {lat + dlat} and lng ge {lng - dlng} and lng le {lng + dlng}")
+        filter_expr = " and ".join(filters) if filters else None
 
         results = client.search(
-            search_text=query,
+            search_text=None if vector_only else query,
             vector_queries=[vector_query],
             filter=filter_expr,
-            query_type=QueryType.SIMPLE,
-            select=["name", "section", "content", "tags", "spotType"],
+            select=["name", "section", "content", "tags", "spotType", "lat", "lng"],
             top=top_k,
         )
 
@@ -327,10 +369,12 @@ def search_context(query: str, top_k: int = 3, spot_type: Optional[str] = None) 
                 "content":  r.get("content", ""),
                 "tags":     r.get("tags", []),
                 "spotType": r.get("spotType", ""),
+                "lat":      r.get("lat"),
+                "lng":      r.get("lng"),
                 "score":    float(r.get("@search.score", 0)),
             })
 
-        logger.debug(f"RAG search for '{query[:50]}' → {len(context)} chunks")
+        logger.debug(f"RAG search for '{query[:50]}' → {len(context)} chunks (filter={filter_expr})")
         return context
 
     except Exception as e:

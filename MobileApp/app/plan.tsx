@@ -2,12 +2,17 @@ import { useState, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Slider from '@react-native-community/slider';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Colors, Radius, Spacing, scale, Shadow } from '@/constants/theme';
 import { saveItinerary } from '@/api/client';
 import { streamItinerary } from '@/api/streaming';
 import { INTEREST_TAGS } from '@/constants/taxonomy';
 
 const MAPS_API_KEY = '***REMOVED_KEY***';
+
+const toMinutes = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+const toTime = (m: number) => { const h = Math.floor(m / 60); const mm = m % 60; return `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; };
 
 export default function PlanTripScreen() {
   const router = useRouter();
@@ -16,6 +21,8 @@ export default function PlanTripScreen() {
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('17:00');
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
   const [travelMode, setTravelMode] = useState<'walking' | 'driving' | 'transit'>('walking');
   const [startLocation, setStartLocation] = useState('');
   const [locationInput, setLocationInput] = useState('');
@@ -175,7 +182,7 @@ export default function PlanTripScreen() {
 
         <Text style={styles.label}>Travel Mode</Text>
         <View style={styles.modeRow}>
-          {(['walking', 'driving', 'transit'] as const).map(mode => (
+          {(['walking', 'driving'] as const).map(mode => (
             <TouchableOpacity 
               key={mode} 
               style={[styles.modeBtn, travelMode === mode && styles.modeBtnActive]} 
@@ -189,34 +196,33 @@ export default function PlanTripScreen() {
           ))}
         </View>
 
-        <View style={styles.timeRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Start Time</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: scale(8) }}>
-              <View style={{ flexDirection: 'row', gap: scale(6) }}>
-                {['07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00'].map(t => (
-                  <TouchableOpacity key={t} onPress={() => setStartTime(t)}
-                    style={[styles.timeChip, startTime === t && styles.timeChipActive]}>
-                    <Text style={[styles.timeChipText, startTime === t && styles.timeChipTextActive]}>{t}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>End Time</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: scale(8) }}>
-              <View style={{ flexDirection: 'row', gap: scale(6) }}>
-                {['14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00'].map(t => (
-                  <TouchableOpacity key={t} onPress={() => setEndTime(t)}
-                    style={[styles.timeChip, endTime === t && styles.timeChipActive]}>
-                    <Text style={[styles.timeChipText, endTime === t && styles.timeChipTextActive]}>{t}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
-          </View>
+        <Text style={styles.label}>Time Range</Text>
+        <View style={{ flexDirection: 'row', gap: scale(10), marginBottom: scale(10) }}>
+          <TouchableOpacity onPress={() => setShowStartPicker(true)}
+            style={{ flex: 1, backgroundColor: Colors.white, borderRadius: Radius.md, paddingVertical: scale(8), paddingHorizontal: scale(12), borderWidth: 1, borderColor: Colors.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: scale(11), color: Colors.textMuted }}>Start</Text>
+            <Text style={{ fontSize: scale(15), fontWeight: '700', color: Colors.primary }}>{startTime}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setShowEndPicker(true)}
+            style={{ flex: 1, backgroundColor: Colors.white, borderRadius: Radius.md, paddingVertical: scale(8), paddingHorizontal: scale(12), borderWidth: 1, borderColor: Colors.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: scale(11), color: Colors.textMuted }}>End</Text>
+            <Text style={{ fontSize: scale(15), fontWeight: '700', color: Colors.primary }}>{endTime}</Text>
+          </TouchableOpacity>
         </View>
+        {showStartPicker && (
+          <DateTimePicker
+            mode="time" minuteInterval={15} is24Hour
+            value={(() => { const [h,m] = startTime.split(':').map(Number); const d = new Date(); d.setHours(h,m,0,0); return d; })()}
+            onChange={(_, d) => { setShowStartPicker(false); if (d) setStartTime(toTime(d.getHours()*60+d.getMinutes())); }}
+          />
+        )}
+        {showEndPicker && (
+          <DateTimePicker
+            mode="time" minuteInterval={15} is24Hour
+            value={(() => { const [h,m] = endTime.split(':').map(Number); const d = new Date(); d.setHours(h,m,0,0); return d; })()}
+            onChange={(_, d) => { setShowEndPicker(false); if (d) setEndTime(toTime(d.getHours()*60+d.getMinutes())); }}
+          />
+        )}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -254,7 +260,7 @@ const styles = StyleSheet.create({
   headerBack: { width: scale(36), height: scale(36), borderRadius: scale(18), backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' },
   headerBackText: { fontSize: scale(20), color: Colors.primary, fontWeight: '700' },
   headerTitle: { fontSize: scale(16), fontWeight: '700', color: Colors.textPrimary },
-  content: { padding: Spacing.lg },
+  content: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm },
   label: { 
     fontSize: scale(13), 
     fontWeight: '700', 

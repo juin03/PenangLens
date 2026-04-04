@@ -1,75 +1,15 @@
 {
-  "version": "1.0",
+  "version": "2.0",
   "categories": [
-    {
-      "id": "food",
-      "label": "Food",
-      "aliases": ["local food", "Food & Culture"],
-      "description": "Hawker centers, restaurants, street food, local cuisine",
-      "searchKeywords": ["food", "restaurant", "hawker", "cuisine", "dining"]
-    },
-    {
-      "id": "art",
-      "label": "Art",
-      "aliases": ["street art", "Street Art"],
-      "description": "Murals, galleries, creative spaces, street art",
-      "searchKeywords": ["art", "mural", "gallery", "street art", "creative"]
-    },
-    {
-      "id": "heritage",
-      "label": "Heritage",
-      "aliases": ["history", "Historical"],
-      "description": "Historical sites, colonial buildings, heritage landmarks",
-      "searchKeywords": ["heritage", "history", "historical", "colonial"]
-    },
-    {
-      "id": "nature",
-      "label": "Nature",
-      "aliases": [],
-      "description": "Parks, gardens, hills, scenic viewpoints, outdoor spaces",
-      "searchKeywords": ["nature", "park", "garden", "outdoor", "scenic"]
-    },
-    {
-      "id": "religious",
-      "label": "Religious",
-      "aliases": [],
-      "description": "Temples, mosques, churches, sacred landmarks",
-      "searchKeywords": ["temple", "mosque", "church", "religious", "sacred"]
-    },
-    {
-      "id": "architecture",
-      "label": "Architecture",
-      "aliases": [],
-      "description": "Iconic buildings, structural design, architectural landmarks",
-      "searchKeywords": ["architecture", "building", "design", "structure"]
-    },
-    {
-      "id": "shopping",
-      "label": "Shopping",
-      "aliases": [],
-      "description": "Markets, malls, shopping streets, local crafts",
-      "searchKeywords": ["shopping", "market", "mall", "retail"]
-    },
-    {
-      "id": "culture",
-      "label": "Culture",
-      "aliases": [],
-      "description": "Cultural experiences, traditions, local customs",
-      "searchKeywords": ["culture", "tradition", "custom", "cultural"]
-    },
-    {
-      "id": "nightlife",
-      "label": "Nightlife",
-      "aliases": [],
-      "description": "Night markets, evening activities, bars, entertainment",
-      "searchKeywords": ["nightlife", "night market", "evening", "entertainment"]
-    },
-    {
-      "id": "beach",
-      "label": "Beach",
-      "aliases": ["waterfront", "Waterfront"],
-      "description": "Beaches, coastal areas, waterfront attractions",
-      "searchKeywords": ["beach", "coast", "waterfront", "sea"]
-    }
+    { "id": "heritage", "label": "Heritage", "description": "Living cultural heritage — clan houses, heritage trails, traditions" },
+    { "id": "historical", "label": "Historical", "description": "Colonial forts, war sites, monuments, museums, past events" },
+    { "id": "food", "label": "Food", "description": "Hawker centres, restaurants, street food, local cuisine" },
+    { "id": "nature", "label": "Nature", "description": "Parks, gardens, hills, beaches, scenic viewpoints" },
+    { "id": "adventure", "label": "Adventure", "description": "Theme parks, outdoor activities, water sports, hiking" },
+    { "id": "art", "label": "Art", "description": "Murals, galleries, creative spaces, street art" },
+    { "id": "religious", "label": "Religious", "description": "Temples, mosques, churches, sacred landmarks" },
+    { "id": "architecture", "label": "Architecture", "description": "Iconic buildings, colonial structures, shophouse design" },
+    { "id": "shopping", "label": "Shopping", "description": "Markets, malls, night markets, local crafts" },
+    { "id": "culture", "label": "Culture", "description": "Cultural experiences, traditions, local customs, festivals" }
   ]
 }

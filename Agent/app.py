@@ -460,11 +460,24 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
         if rag_chunks:
             context_texts = [f"- [{c['name']}] {c['content']}" for c in rag_chunks]
             rag_context = "\n\nRelevant Penang Heritage Information:\n" + "\n".join(context_texts)
-            logger.debug(f"RAG: injected {len(rag_chunks)} chunks into context")
+            logger.info(f"RAG: query='{user_message[:80]}' → {len(rag_chunks)} chunks retrieved")
+            for i, c in enumerate(rag_chunks):
+                logger.info(f"  RAG chunk {i+1}: [{c['name']}] score={c.get('score', 'N/A')} len={len(c.get('content', ''))}")
+        else:
+            logger.info(f"RAG: query='{user_message[:80]}' → no chunks found")
 
         augmented_message = user_message
         if rag_context:
             augmented_message += rag_context
+
+        # Prevent general questions from triggering itinerary planning
+        if intent == IntentType.GENERAL_QUESTION:
+            augmented_message = (
+                "[INSTRUCTION: Answer the user's question about Penang concisely. "
+                "Do NOT plan an itinerary or use itinerary tools. Just provide helpful information.]\n\n"
+                + augmented_message
+            )
+
         result = run_agent(
             user_message=augmented_message,
             thread_id=thread_id,
@@ -615,19 +628,60 @@ async def chat_stream_v1(request: Request, chat_request: ChatRequest):
         raise HTTPException(status_code=400, detail="Message is required")
 
     thread_id = chat_request.thread_id or str(uuid.uuid4())
+    intent = _classify_intent(user_message, has_itinerary=False)
 
-    # RAG: inject relevant context before streaming (mirrors /chat behaviour)
-    rag_chunks = search_context(user_message, top_k=3)
-    if rag_chunks:
-        rag_context = "\n\nRelevant Penang Heritage Information:\n" + "\n".join(
-            f"- [{c['name']}] {c['content']}" for c in rag_chunks
+    # RAG: only for actual questions, not greetings
+    if intent == IntentType.GREETING:
+        logger.info(f"[chat/stream] greeting detected, skipping RAG")
+    elif chat_request.context == "landmark_chat" and chat_request.spot_content:
+        sc = chat_request.spot_content
+        sections = []
+        for key in ["overview", "history", "culture", "funFacts"]:
+            if sc.get(key):
+                sections.append(f"**{key.title()}:** {sc[key]}")
+        landmark_context = "\n\n".join(sections)
+
+        # Build detection context
+        det_context = ""
+        if chat_request.detected_classes:
+            detected_names = [d.get("class", "").replace("_", " ") for d in chat_request.detected_classes]
+            det_context += f"\n\nDetected in user's photo: {', '.join(detected_names)}."
+            if chat_request.all_classes:
+                all_names = set(c.replace("_", " ") for c in chat_request.all_classes)
+                missed = all_names - set(detected_names)
+                if missed:
+                    det_context += f"\nNot captured in photo (worth exploring): {', '.join(missed)}."
+
+        user_message = (
+            f"{user_message}\n\n--- Landmark Information ---\n{landmark_context}{det_context}"
         )
-        user_message = user_message + rag_context
+        logger.info(f"[chat/stream] landmark_chat — direct context injected for '{chat_request.spot_id}'")
+    else:
+        rag_chunks = search_context(user_message, top_k=3)
+        if rag_chunks:
+            names = [c['name'] for c in rag_chunks]
+            logger.info(f"[chat/stream] RAG query='{user_message[:80]}' → {len(rag_chunks)} chunks")
+            for i, c in enumerate(rag_chunks):
+                logger.info(f"  RAG chunk {i+1}: [{c['name']}] section={c.get('section','')} score={c.get('score', 'N/A'):.4f} len={len(c.get('content', ''))}")
+            rag_context = "\n\nRelevant Penang Heritage Information:\n" + "\n".join(
+                f"- [{c['name']}] {c['content']}" for c in rag_chunks
+            )
+            user_message = user_message + rag_context
+        else:
+            logger.info(f"[chat/stream] RAG query='{user_message[:80]}' → no chunks found")
 
     logger.info(
         f"Stream request received",
         extra={"thread_id": thread_id}
     )
+
+    # For general chat, prevent agent from planning itineraries
+    if not chat_request.context or chat_request.context == "general_chat":
+        user_message = (
+            "[INSTRUCTION: Answer the user's question about Penang concisely. "
+            "Do NOT plan an itinerary or use itinerary tools. Just provide helpful information.]\n\n"
+            + user_message
+        )
 
     async def event_generator():
         try:

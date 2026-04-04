@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Modal 
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Radius, Spacing, scale } from '@/constants/theme';
 import { getStoredUser, logout, updateProfile } from '@/api/client';
@@ -78,11 +79,11 @@ export default function ProfileScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={[styles.header, { paddingTop: insets.top + Spacing.lg }]}>
-        <View style={styles.avatar}><Text style={styles.avatarText}>👤</Text></View>
+        <View style={styles.avatar}><Ionicons name="person" size={scale(28)} color={Colors.primary} /></View>
         <View style={styles.nameRow}>
           <Text style={styles.name}>{name}</Text>
           <TouchableOpacity onPress={handleEditName} style={styles.editNameBtn}>
-            <Text style={styles.editNameText}>✏️</Text>
+            <Ionicons name="pencil" size={scale(14)} color={Colors.primary} />
           </TouchableOpacity>
         </View>
         <Text style={styles.email}>{email}</Text>

@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
         where: includeAll ? {} : { status: 'published' },
         include: { 
           tags: { include: { tag: true } },
-          // Get first image via first POI's images
+          images: { take: 1, orderBy: { createdAt: 'asc' } },
           pois: {
             take: 1,
             include: { images: { take: 1, orderBy: { createdAt: 'asc' } } },
@@ -97,8 +97,8 @@ export async function GET(request: NextRequest) {
         .map(l => {
           const coords = parseCoords(l.location);
           if (!coords) return null;
-          // Get first image from first POI
-          const firstImg = l.pois[0]?.images[0]?.imageUrl ?? null;
+          // Prefer landmark's own image, fallback to first POI's image
+          const firstImg = l.images[0]?.imageUrl ?? l.pois[0]?.images[0]?.imageUrl ?? null;
           return {
             id: l.id,
             name: l.name,

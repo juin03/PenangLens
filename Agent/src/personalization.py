@@ -44,21 +44,16 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
 GOOGLE_EMBED_MODEL = os.getenv("GOOGLE_EMBED_MODEL", "gemini-embedding-001").strip()
 
 INTEREST_EXPANSIONS: dict[str, str] = {
-    "street art": "Street Art: murals, creative public art, photo spots, graffiti culture, interactive wall art.",
-    "history": "History: historical sites, colonial era stories, heritage narratives, museums, important events from the past.",
-    "nature": "Nature: parks, gardens, hills, scenic viewpoints, wildlife, greenery, outdoor exploration.",
-    "architecture": "Architecture: design styles, iconic buildings, structural details, religious and colonial architecture.",
-    "local food": "Local Food: hawker culture, authentic Penang dishes, street food, local flavors, food heritage.",
-    "museums": "Museums: curated exhibits, cultural institutions, historical collections, art and educational galleries.",
-    "nightlife": "Nightlife: evening activities, lively streets, night markets, social venues, after-dark experiences.",
-    "shopping": "Shopping: malls, local markets, souvenir spots, artisan products, retail streets.",
-    "coffee shops": "Coffee Shops: cafes, specialty coffee, cozy hangout spaces, brunch spots, local cafe culture.",
-    "live music": "Live Music: performances, local bands, cultural shows, acoustic sets, music venues.",
-    "heritage": "Heritage: culturally and historically significant places that preserve traditions, architecture, and stories of Penang communities.",
+    "heritage": "Heritage: culturally and historically significant places that preserve traditions, architecture, and stories of Penang communities, including colonial buildings, clan houses, and heritage trails.",
+    "historical": "Historical: colonial forts, war memorials, monuments, museums, and sites tied to important events in Penang's past.",
+    "food": "Food: hawker centres, street food stalls, local restaurants, authentic Penang dishes like char koay teow, laksa, nasi kandar, curry mee, and desserts like chendul.",
+    "nature": "Nature: parks, gardens, hills, scenic viewpoints, wildlife, greenery, beaches, and hiking trails.",
+    "adventure": "Adventure: theme parks, outdoor activities, water sports, hiking, cycling, farm tours, and adrenaline experiences.",
+    "art": "Art: street murals, galleries, creative spaces, installations, cultural expression, and interactive art exhibits.",
     "religious": "Religious: temples, mosques, churches, sacred landmarks, spiritual and cultural significance.",
-    "food": "Food: culinary attractions, local cuisine, street food experiences, popular eateries.",
-    "art": "Art: creative spaces, galleries, installations, murals, cultural expression.",
-    "historical": "Historical: landmarks tied to major past events, old districts, monuments, heritage narratives.",
+    "architecture": "Architecture: iconic buildings, colonial-era structures, religious architecture, shophouse design, and modern landmarks.",
+    "shopping": "Shopping: malls, local markets, night markets, souvenir spots, artisan products, and retail streets.",
+    "culture": "Culture: cultural experiences, traditions, local customs, festivals, ethnic communities, and living heritage.",
 }
 
 
@@ -177,42 +172,47 @@ class PersonalizationService:
         if not self.is_configured() or not interests:
             return []
 
-        interest_text = self._build_interest_text(interests)
-        query_vec = self.embedder.embed(interest_text, "RETRIEVAL_QUERY")
-        vector_query = VectorizedQuery(
-            vector=query_vec,
-            k_nearest_neighbors=max(20, top_k * 6),
-            fields="vector_768",
-        )
+        try:
+            interest_text = self._build_interest_text(interests)
+            query_vec = self.embedder.embed(interest_text, "RETRIEVAL_QUERY")
+            vector_query = VectorizedQuery(
+                vector=query_vec,
+                k_nearest_neighbors=max(20, top_k * 6),
+                fields="vector_768",
+            )
 
-        client = self._search_client(TEXT_INDEX_NAME)
-        results = client.search(
-            search_text="*",
-            vector_queries=[vector_query],
-            select=["spotId", "spotType", "name", "content", "tags"],
-            top=max(20, top_k * 6),
-        )
+            client = self._search_client(TEXT_INDEX_NAME)
+            results = client.search(
+                search_text="*",
+                vector_queries=[vector_query],
+                select=["spotId", "spotType", "name", "content", "tags"],
+                top=max(20, top_k * 6),
+            )
 
-        grouped: dict[str, dict] = {}
-        for row in results:
-            spot_id = row.get("spotId")
-            if not spot_id:
-                continue
-            score = float(row.get("@search.score", 0))
-            if spot_id not in grouped:
-                grouped[spot_id] = {
-                    "spot_id": spot_id,
-                    "spot_type": row.get("spotType"),
-                    "name": row.get("name"),
-                    "description": row.get("content"),
-                    "tags": row.get("tags") or [],
-                    "score": score,
-                }
-            else:
-                grouped[spot_id]["score"] = max(grouped[spot_id]["score"], score)
+            grouped: dict[str, dict] = {}
+            for row in results:
+                spot_id = row.get("spotId")
+                if not spot_id:
+                    continue
+                score = float(row.get("@search.score", 0))
+                if spot_id not in grouped:
+                    grouped[spot_id] = {
+                        "spot_id": spot_id,
+                        "spot_type": row.get("spotType"),
+                        "name": row.get("name"),
+                        "description": row.get("content"),
+                        "tags": row.get("tags") or [],
+                        "score": score,
+                    }
+                else:
+                    grouped[spot_id]["score"] = max(grouped[spot_id]["score"], score)
 
-        ranked = sorted(grouped.values(), key=lambda x: x["score"], reverse=True)
-        return ranked[: max(1, top_k)]
+            ranked = sorted(grouped.values(), key=lambda x: x["score"], reverse=True)
+            return ranked[: max(1, top_k)]
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"recommend_by_interests failed: {e}")
+            return []
 
 
 personalization_service = PersonalizationService()

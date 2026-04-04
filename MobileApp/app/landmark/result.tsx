@@ -325,17 +325,23 @@ export default function LandmarkResultScreen() {
     setChatMessages(prev => [...prev, { role: 'assistant', content: '' }]);
 
     try {
-      // Inject detection context so the AI knows what was found
-      const detectionContext = uniqueDetections.length > 0
-        ? `\n[Detected features: ${uniqueDetections.map(d => d.class.replace(/_/g, ' ')).join(', ')}]`
-        : '';
-      const contextMsg = `[Landmark: ${landmarkName}]${detectionContext}\n${userMsg}`;
+      // Build class info for detected and all known classes
+      const detectedClasses = uniqueDetections.map(d => ({
+        class: d.class,
+        confidence: d.confidence,
+      }));
+      // All classes for this landmark from CLASS_INFO keys that match detections' parent
+      const allClassKeys = Object.keys(CLASS_INFO);
 
       const stream = streamChat(
-        contextMsg,
+        `[Landmark: ${landmarkName}] ${userMsg}`,
         threadId ?? `landmark_${(spotId || landmarkName).replace(/\s+/g, '_')}`,
         spotId,
         'landmark_chat',
+        {
+          detected_classes: detectedClasses,
+          all_classes: allClassKeys,
+        },
       );
       let fullResponse = '';
       for await (const update of stream) {
