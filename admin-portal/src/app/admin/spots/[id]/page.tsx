@@ -45,6 +45,7 @@ export default function SpotDetailPage() {
   const [deletingImages, setDeletingImages] = useState(false);
   const [aiInstructions, setAiInstructions] = useState('');
   const [showCurateModal, setShowCurateModal] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   // Image Upload state
   const [uploadState, setUploadState] = useState<{file: File, status: string}[]>([]);
@@ -365,10 +366,12 @@ export default function SpotDetailPage() {
                       const imageId = img.imageId || img.url?.split('/').pop()?.replace('.jpg', '') || img.id;
                       const src = img.url?.startsWith('https://') ? img.url : img.url?.startsWith('/') ? img.url : `/uploads/images/${img.url}.jpg`;
                       return (
-                        <div key={img.id} style={{ position: 'relative', borderRadius: 6, overflow: 'hidden', border: '1px solid #e5e7eb', height: 75 }}>
+                        <div key={img.id} style={{ position: 'relative', borderRadius: 6, overflow: 'hidden', border: '1px solid #e5e7eb', height: 75, cursor: 'pointer' }}
+                          onClick={() => setSelectedImage(src)}>
                           <img src={src} alt={img.filename} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                           <button
-                            onClick={async () => {
+                            onClick={async (e) => {
+                              e.stopPropagation();
                               if (!confirm('Delete this image and remove from vision index?')) return;
                               const res = await fetch(`/api/admin/spots/${id}/images/${imageId}`, { method: 'DELETE' });
                               if (res.ok) setSpot(prev => prev ? { ...prev, images: prev.images!.filter((i: any) => i.id !== img.id) } : prev);
@@ -387,6 +390,29 @@ export default function SpotDetailPage() {
 
         </div>
       </div>
+
+      {/* Image Lightbox Modal */}
+      {selectedImage && (
+        <div 
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, cursor: 'pointer' }}
+          onClick={() => setSelectedImage(null)}
+        >
+          <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
+            <img 
+              src={selectedImage} 
+              alt="Full size preview" 
+              style={{ maxWidth: '100%', maxHeight: '90vh', objectFit: 'contain', borderRadius: 8, boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <button
+              onClick={() => setSelectedImage(null)}
+              style={{ position: 'absolute', top: -40, right: 0, background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer', fontSize: 20, fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* AI Curation Modal */}
       {showCurateModal && (

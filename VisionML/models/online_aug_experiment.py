@@ -1,14 +1,8 @@
 """
-Offline Augmentation Experiment
---------------------------------
-Tests different offline augmentation factors (0x, 5x, 10x, 15x).
-For each factor:
-  1. Clean training folder (remove old augmented images)
-  2. Run offline augmentation with given factor
-  3. Train YOLO11s with NO online augmentation
-  4. Record results
-
-All YOLO online augmentation is DISABLED to isolate offline augmentation effect.
+Online Augmentation Experiment
+-------------------------------
+Base: 5x offline augmentation (594 images) - winner from previous experiment.
+Tests different YOLO online augmentation levels: none, light, moderate, heavy.
 """
 
 import os
@@ -18,7 +12,9 @@ import torch
 import time
 import json
 import glob
-import shutil
+import cv2
+import numpy as np
+import random
 from datetime import datetime
 from ultralytics import YOLO
 
@@ -26,31 +22,40 @@ from ultralytics import YOLO
 DATASET_ALL = r"C:\Users\User\Desktop\USM\Y4\FYP\PenangLens\VisionML\data_prep\Dataset\all"
 TRAIN_IMG_DIR = os.path.join(DATASET_ALL, "train", "images")
 TRAIN_LBL_DIR = os.path.join(DATASET_ALL, "train", "labels")
-RESULTS_BASE = r"C:\Users\User\Desktop\USM\Y4\FYP\runs\detect\aug_experiments"
+RESULTS_BASE = r"C:\Users\User\Desktop\USM\Y4\FYP\runs\detect\online_aug_experiments"
 
-# Training config
 MODEL_WEIGHTS = "yolo11s.pt"
 EPOCHS = 50
 IMAGE_SIZE = 640
 BATCH_SIZE = 16
 FREEZE_LAYERS = 10
 
-AUGMENTATION_FACTORS = [0, 5, 10]
-
-# Import augmentation function from augment.py
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'data_prep'))
 from augment import augment_image_and_labels, parse_yolo_labels, write_yolo_labels
 
-import cv2
-import numpy as np
-import random
-
-random.seed(42)
-np.random.seed(42)
+ONLINE_AUG_LEVELS = {
+    'none': {
+        'hsv_h': 0.0, 'hsv_s': 0.0, 'hsv_v': 0.0,
+        'degrees': 0.0, 'translate': 0.0, 'scale': 0.0,
+        'flipud': 0.0, 'fliplr': 0.0, 'mosaic': 0.0, 'mixup': 0.0,
+    },
+    'light': {
+        'hsv_h': 0.01, 'hsv_s': 0.5, 'hsv_v': 0.2,
+        'degrees': 5.0, 'fliplr': 0.5,
+    },
+    'moderate': {
+        'hsv_h': 0.015, 'hsv_s': 0.7, 'hsv_v': 0.4,
+        'degrees': 10.0, 'fliplr': 0.5, 'mosaic': 1.0,
+    },
+    'heavy': {
+        'hsv_h': 0.02, 'hsv_s': 0.9, 'hsv_v': 0.5,
+        'degrees': 15.0, 'translate': 0.1, 'scale': 0.2,
+        'fliplr': 0.5, 'mosaic': 1.0, 'mixup': 0.1,
+    },
+}
 
 
 def clean_augmented_images():
-    """Remove all augmented images and labels from training folder."""
     for f in glob.glob(os.path.join(TRAIN_IMG_DIR, "*_aug*")):
         os.remove(f)
     for f in glob.glob(os.path.join(TRAIN_LBL_DIR, "*_aug*")):
@@ -58,25 +63,20 @@ def clean_augmented_images():
 
 
 def augment_training_set(factor):
-    """Create 'factor' augmented copies of each training image."""
     if factor == 0:
         return 0
-
     images = [f for f in os.listdir(TRAIN_IMG_DIR)
               if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')) and '_aug' not in f]
-
     count = 0
     for img_file in images:
         img_path = os.path.join(TRAIN_IMG_DIR, img_file)
         label_file = os.path.splitext(img_file)[0] + ".txt"
         label_path = os.path.join(TRAIN_LBL_DIR, label_file)
-
         img = cv2.imread(img_path)
         if img is None:
             continue
         img_h, img_w = img.shape[:2]
         bboxes = parse_yolo_labels(label_path)
-
         for i in range(factor):
             aug_img, aug_bboxes = augment_image_and_labels(img, bboxes, img_h, img_w)
             base = os.path.splitext(img_file)[0]
@@ -84,7 +84,6 @@ def augment_training_set(factor):
             cv2.imwrite(os.path.join(TRAIN_IMG_DIR, f"{base}_aug{i}{ext}"), aug_img)
             write_yolo_labels(os.path.join(TRAIN_LBL_DIR, f"{base}_aug{i}.txt"), aug_bboxes)
             count += 1
-
     return count
 
 
@@ -115,45 +114,41 @@ def main():
     print(f"✅ GPU: {torch.cuda.get_device_name(0)}")
     yaml_path = verify_dataset()
 
+    # Step 1: Prepare 5x offline augmented dataset
+    print("\n🧹 Cleaning augmented images...")
+    clean_augmented_images()
+    random.seed(42)
+    np.random.seed(42)
+    print("📸 Applying 5x offline augmentation...")
+    aug_count = augment_training_set(5)
+    total_images = count_training_images()
+    print(f"✅ Dataset ready: {total_images} images (99 original + {aug_count} augmented)")
+
     results = []
     experiment_log = {
         'experiment_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'gpu': torch.cuda.get_device_name(0),
         'config': {
             'model': MODEL_WEIGHTS,
+            'offline_augmentation': '5x (594 images)',
             'epochs': EPOCHS,
             'batch_size': BATCH_SIZE,
             'image_size': IMAGE_SIZE,
             'freeze_layers': FREEZE_LAYERS,
             'dropout': 0.15,
             'weight_decay': 0.0005,
-            'patience': 5,
-            'online_augmentation': 'DISABLED (all set to 0)',
+            'patience': 10,
         },
         'results': []
     }
 
-    for factor in AUGMENTATION_FACTORS:
+    # Step 2: Train with different online augmentation levels
+    for level_name, aug_params in ONLINE_AUG_LEVELS.items():
         try:
-            # Step 1: Clean
             print(f"\n{'='*60}")
-            print(f"🧪 Testing {factor}x offline augmentation")
+            print(f"🧪 Testing online augmentation: {level_name.upper()}")
             print(f"{'='*60}")
 
-            clean_augmented_images()
-            print(f"🧹 Cleaned augmented images")
-
-            # Step 2: Augment
-            if factor > 0:
-                random.seed(42)
-                np.random.seed(42)
-                aug_count = augment_training_set(factor)
-                print(f"📸 Created {aug_count} augmented images")
-
-            total_images = count_training_images()
-            print(f"📊 Total training images: {total_images}")
-
-            # Step 3: Train with NO online augmentation
             model = YOLO(MODEL_WEIGHTS)
             start_time = time.time()
             model.train(
@@ -163,26 +158,22 @@ def main():
                 batch=BATCH_SIZE,
                 device=0,
                 project=RESULTS_BASE,
-                name=f"aug_{factor}x",
+                name=f"online_{level_name}",
                 freeze=FREEZE_LAYERS,
                 exist_ok=True,
                 verbose=True,
                 workers=0,
                 plots=True,
-                patience=5,
+                patience=10,
                 dropout=0.15,
                 weight_decay=0.0005,
-                # DISABLE all online augmentation
-                hsv_h=0.0, hsv_s=0.0, hsv_v=0.0,
-                degrees=0.0, translate=0.0, scale=0.0,
-                flipud=0.0, fliplr=0.0,
-                mosaic=0.0, mixup=0.0,
+                **aug_params,
             )
             training_time = time.time() - start_time
 
-            # Step 4: Extract results
+            # Extract results
             import pandas as pd
-            csv_path = os.path.join(RESULTS_BASE, f"aug_{factor}x", "results.csv")
+            csv_path = os.path.join(RESULTS_BASE, f"online_{level_name}", "results.csv")
             df = pd.read_csv(csv_path)
             df.columns = df.columns.str.strip()
 
@@ -193,8 +184,7 @@ def main():
             f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0
 
             result = {
-                'factor': factor,
-                'training_images': total_images,
+                'level': level_name,
                 'training_time_seconds': round(training_time, 1),
                 'training_time_min': round(training_time / 60, 1),
                 'epochs_completed': len(df),
@@ -208,43 +198,35 @@ def main():
             results.append(result)
             experiment_log['results'].append(result)
 
-            print(f"\n✅ {factor}x Complete: {total_images} images, mAP50-95={result['mAP50_95']}, F1={result['f1']}")
+            print(f"\n✅ {level_name} Complete: mAP50-95={result['mAP50_95']}, F1={result['f1']}")
 
         except Exception as e:
-            print(f"❌ Failed for {factor}x: {e}")
+            print(f"❌ Failed for {level_name}: {e}")
             import traceback
             traceback.print_exc()
-            experiment_log['results'].append({'factor': factor, 'error': str(e)})
-
-    # Clean up: restore 10x augmentation (original state)
-    print(f"\n🧹 Restoring 10x augmentation...")
-    clean_augmented_images()
-    random.seed(42)
-    np.random.seed(42)
-    augment_training_set(10)
-    print(f"✅ Restored to {count_training_images()} training images")
+            experiment_log['results'].append({'level': level_name, 'error': str(e)})
 
     # Print summary
     print(f"\n{'='*90}")
-    print("📊 AUGMENTATION EXPERIMENT RESULTS (Offline Augmentation, No Online Aug)")
+    print("📊 ONLINE AUGMENTATION EXPERIMENT (Base: 5x Offline Aug, 594 images)")
     print(f"{'='*90}")
-    print(f"{'Factor':<8} {'Images':<8} {'Epochs':<8} {'Best':<6} {'Time':<8} {'Prec':<8} {'Recall':<8} {'F1':<8} {'mAP50':<8} {'mAP50-95':<10}")
+    print(f"{'Level':<12} {'Epochs':<8} {'Best':<6} {'Time':<8} {'Prec':<8} {'Recall':<8} {'F1':<8} {'mAP50':<8} {'mAP50-95':<10}")
     print("-" * 90)
     for r in results:
-        print(f"{r['factor']}x{'':<5} {r['training_images']:<8} {r['epochs_completed']:<8} {r['best_epoch']:<6} "
+        print(f"{r['level']:<12} {r['epochs_completed']:<8} {r['best_epoch']:<6} "
               f"{r['training_time_min']:<8} {r['precision']:<8} {r['recall']:<8} {r['f1']:<8} "
               f"{r['mAP50']:<8} {r['mAP50_95']:<10}")
 
     if results:
         best = max(results, key=lambda x: x['mAP50_95'])
-        print(f"\n🏆 Best: {best['factor']}x augmentation (mAP50-95: {best['mAP50_95']})")
+        print(f"\n🏆 Best: {best['level']} online augmentation (mAP50-95: {best['mAP50_95']})")
 
     # Save
-    save_dir = os.path.join(os.path.dirname(__file__), "aug_experiments")
+    save_dir = os.path.join(os.path.dirname(__file__), "online_aug_experiments")
     os.makedirs(save_dir, exist_ok=True)
     with open(os.path.join(save_dir, "experiment_results.json"), 'w') as f:
         json.dump(experiment_log, f, indent=2)
-    print(f"\n📄 Results saved to aug_experiments/experiment_results.json")
+    print(f"\n📄 Results saved to online_aug_experiments/experiment_results.json")
 
 
 if __name__ == "__main__":

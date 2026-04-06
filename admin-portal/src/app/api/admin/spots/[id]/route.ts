@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 const AGENT_BASE_URL = process.env.AGENT_BASE_URL || 'http://127.0.0.1:8000';
+const AZURE_ENDPOINT = process.env.AZURE_SEARCH_ENDPOINT || '';
+const AZURE_KEY = process.env.AZURE_SEARCH_KEY || '';
+const VISION_INDEX = 'penanglens-poc-index';
 
 function isValidLatLng(location: string): boolean {
   const parts = String(location || '').replace(/[°NSEW\s]/g, '').split(',');
@@ -34,6 +37,48 @@ async function triggerDeleteIndex(spotId: string) {
     await fetch(`${AGENT_BASE_URL}/index/${spotId}`, { method: 'DELETE' });
   } catch {
     console.warn(`[RAG] Failed to delete index for spot ${spotId} — Agent may be offline.`);
+  }
+}
+
+/** Delete all vision index entries for a spot (by poi_id filter) */
+async function deleteFromVisionIndex(spotId: string) {
+  try {
+    // First, search for all documents with this poi_id
+    const searchUrl = `${AZURE_ENDPOINT}/indexes/${VISION_INDEX}/docs?api-version=2023-11-01&$filter=poi_id eq '${spotId}'&$select=id&$top=1000`;
+    const searchRes = await fetch(searchUrl, {
+      headers: { 'api-key': AZURE_KEY },
+    });
+
+    if (!searchRes.ok) {
+      console.warn(`[Vision] Failed to search vision index for spot ${spotId}`);
+      return;
+    }
+
+    const searchData = await searchRes.json() as any;
+    const imageIds = (searchData.value || []).map((doc: any) => doc.id);
+
+    if (imageIds.length === 0) {
+      console.log(`[Vision] No images found in vision index for spot ${spotId}`);
+      return;
+    }
+
+    // Delete all found documents
+    const deleteUrl = `${AZURE_ENDPOINT}/indexes/${VISION_INDEX}/docs/index?api-version=2023-11-01`;
+    const deleteDocs = imageIds.map((id: string) => ({ '@search.action': 'delete', id }));
+    
+    const deleteRes = await fetch(deleteUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-key': AZURE_KEY },
+      body: JSON.stringify({ value: deleteDocs }),
+    });
+
+    if (deleteRes.ok) {
+      console.log(`[Vision] Deleted ${imageIds.length} images from vision index for spot ${spotId}`);
+    } else {
+      console.warn(`[Vision] Failed to delete from vision index for spot ${spotId}`);
+    }
+  } catch (error) {
+    console.warn(`[Vision] Error deleting from vision index for spot ${spotId}:`, error);
   }
 }
 
@@ -196,12 +241,14 @@ export async function DELETE(
     if (landmark) {
       await prisma.landmark.delete({ where: { id } });
       await triggerDeleteIndex(id);
+      await deleteFromVisionIndex(id);
       return NextResponse.json({ success: true });
     }
     const poi = await prisma.pointOfInterest.findUnique({ where: { id } });
     if (poi) {
       await prisma.pointOfInterest.delete({ where: { id } });
       await triggerDeleteIndex(id);
+      await deleteFromVisionIndex(id);
       return NextResponse.json({ success: true });
     }
     return NextResponse.json({ error: 'Not found' }, { status: 404 });

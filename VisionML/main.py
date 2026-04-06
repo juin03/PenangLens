@@ -16,7 +16,7 @@ load_dotenv()
 # YOLO11 Fine-tuned model (use env var for deployment, fallback to local path for dev)
 FINETUNED_MODEL_PATH = os.getenv(
     "YOLO_MODEL_PATH",
-    r"C:\Users\User\Desktop\USM\Y4\FYP\runs\detect\results\partial_finetuning\weights\best.pt"
+    r"C:\Users\User\Desktop\USM\Y4\FYP\runs\detect\model_size_experiments\yolo11s\weights\best.pt"
 )
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -30,7 +30,7 @@ AZURE_API_KEY = os.getenv("AZURE_SEARCH_KEY")
 INDEX_NAME = "penanglens-poc-index"
 
 # DINOv2 minimum confidence threshold — results below this are treated as "Unknown Landmark"
-DINO_CONFIDENCE_THRESHOLD = float(os.getenv("DINO_CONFIDENCE_THRESHOLD", "0.6"))
+DINO_CONFIDENCE_THRESHOLD = float(os.getenv("DINO_CONFIDENCE_THRESHOLD", "0.8"))
 
 # POI → class mapping (which YOLO classes are valid for each POI)
 # This prevents false detections like "onion_dome" appearing in Kek Lok Si
@@ -155,7 +155,7 @@ def run_yolo_detection(pil_image: Image.Image, poi_id: str | None = None) -> tup
         return [], None
 
     results = yolo_model.predict(
-        source=pil_image, conf=0.25, iou=0.45,
+        source=pil_image, conf=0.61, iou=0.45,
         device=DEVICE, save=False, verbose=False
     )
     result = results[0]
