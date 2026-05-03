@@ -35,13 +35,10 @@ _DURATION_BY_TYPE = {
     "bar": 45,
     "park": 60,
     "place_of_worship": 30,
-    "hindu_temple": 30,
-    "mosque": 30,
     "church": 30,
     "shopping_mall": 90,
     "store": 45,
     "market": 45,
-    "beach": 90,
     "zoo": 120,
     "amusement_park": 180,
     "night_club": 120,
@@ -55,7 +52,6 @@ _DURATION_BY_TYPE = {
     # Places API (New) types
     "historical_landmark": 60,
     "cultural_landmark": 60,
-    "art_gallery": 45,
     "sculpture": 20,
     "monument": 30,
     "performing_arts_theater": 120,
@@ -112,13 +108,6 @@ def _estimate_duration(types: list) -> int:
             return _DURATION_BY_TYPE[t]
     return 45  # default
 
-
-def _enrich_with_local_content(place_name: str) -> dict:
-    """
-    Check if we have curated editorial content for this place via RAG.
-    Returns dict with 'editorial' and 'tags' if found, else empty dict.
-    """
-    return {}  # Temporarily disabled — RAG calls cause 36s timeout
 
 
 _NEW_PLACES_BASE = "https://places.googleapis.com/v1"
@@ -429,10 +418,6 @@ def search_places(category: str, travel_mode: str = "driving") -> str:
             if editorial:
                 output += f"   Editorial: {editorial[:150]}\n"
 
-            enrichment = _enrich_with_local_content(name)
-            if enrichment.get("editorial"):
-                output += f"   About: {enrichment['editorial'][:200]}\n"
-
             if maps_link:
                 output += f"   📍 Google Maps: {maps_link}\n"
             output += "\n"
@@ -630,11 +615,6 @@ def get_place_details(place_name: str, location: str = "Penang, Malaysia") -> st
 
     if opening_hours:
         result += f"\n{_format_opening_hours(opening_hours)}\n"
-
-    # Enrich with editorial content from admin DB
-    enrichment = _enrich_with_local_content(name)
-    if enrichment.get("editorial"):
-        result += f"\nLocal knowledge: {enrichment['editorial'][:300]}\n"
 
     result += f"\n📍 Google Maps: {maps_link}\n"
     return result

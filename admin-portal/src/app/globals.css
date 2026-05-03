@@ -274,3 +274,11 @@ html, body {
   font-weight: 600;
 }
 .tab-item:hover { color: #374151 !important; }
+
+/* Markdown rendering in chat feedback */
+.markdown-body p { margin: 0 0 8px; }
+.markdown-body p:last-child { margin-bottom: 0; }
+.markdown-body strong { font-weight: 600; }
+.markdown-body ol, .markdown-body ul { padding-left: 20px; margin: 4px 0 8px; }
+.markdown-body li { margin-bottom: 4px; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { font-weight: 600; margin: 8px 0 4px; }

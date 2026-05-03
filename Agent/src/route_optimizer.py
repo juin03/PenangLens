@@ -14,7 +14,7 @@ from typing import List, Dict, Tuple
 import itertools
 
 
-def get_distance_matrix(locations: List[str]) -> Dict[Tuple[int, int], Dict]:
+def get_distance_matrix(locations: List[str], mode: str = "walking") -> Dict[Tuple[int, int], Dict]:
     """
     Get pairwise distances and travel times between all locations using Google Distance Matrix API.
     Handles API limits by batching requests.
@@ -42,7 +42,7 @@ def get_distance_matrix(locations: List[str]) -> Dict[Tuple[int, int], Dict]:
         print(f"Warning: {len(locations)} locations exceeds batch size. Using nearest neighbor only.")
         # For large sets, we'll only calculate distances needed for nearest neighbor
         # to avoid API limits. This is less accurate but necessary.
-        return get_distance_matrix_sparse(locations, api_key)
+        return get_distance_matrix_sparse(locations, api_key, mode)
     
     # Format locations for API (add Penang, Malaysia if not present)
     formatted_locations = []
@@ -57,7 +57,7 @@ def get_distance_matrix(locations: List[str]) -> Dict[Tuple[int, int], Dict]:
     params = {
         'origins': '|'.join(formatted_locations),
         'destinations': '|'.join(formatted_locations),
-        'mode': 'walking',
+        'mode': mode,
         'key': api_key
     }
     
@@ -90,7 +90,7 @@ def get_distance_matrix(locations: List[str]) -> Dict[Tuple[int, int], Dict]:
         return {}
 
 
-def get_distance_matrix_sparse(locations: List[str], api_key: str) -> Dict[Tuple[int, int], Dict]:
+def get_distance_matrix_sparse(locations: List[str], api_key: str, mode: str = "walking") -> Dict[Tuple[int, int], Dict]:
     """
     Get sparse distance matrix for large location sets (only nearest neighbors).
     This avoids API limits by not requesting all pairs.
@@ -124,7 +124,7 @@ def get_distance_matrix_sparse(locations: List[str], api_key: str) -> Dict[Tuple
             params = {
                 'origins': formatted_locations[i],
                 'destinations': '|'.join(batch_destinations),
-                'mode': 'walking',
+                'mode': mode,
                 'key': api_key
             }
             
@@ -247,7 +247,8 @@ def brute_force_optimal_route(distance_matrix: Dict[Tuple[int, int], Dict],
 
 def optimize_route(locations: List[str], 
                    start_location: str = None,
-                   use_brute_force: bool = True) -> Dict:
+                   use_brute_force: bool = True,
+                   mode: str = "walking") -> Dict:
     """
     Optimize the order of locations to minimize total walking distance.
     
@@ -272,7 +273,7 @@ def optimize_route(locations: List[str],
         }
     
     # Get distance matrix
-    distance_matrix = get_distance_matrix(locations)
+    distance_matrix = get_distance_matrix(locations, mode)
     
     if not distance_matrix:
         print("Could not get distance matrix, returning original order")

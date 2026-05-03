@@ -107,6 +107,7 @@ export async function* streamItinerary(request: {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let dataBuffer = '';
 
   while (true) {
     const { done, value } = await reader.read();
@@ -119,19 +120,25 @@ export async function* streamItinerary(request: {
     buffer = lines.pop() || '';
 
     for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        try {
-          const data = JSON.parse(line.slice(6));
-          
-          if (data.type === 'status') {
-            yield { type: 'status', message: data.message };
-          } else if (data.type === 'complete') {
-            yield { type: 'complete', data: data.data };
-          } else if (data.type === 'error') {
-            yield { type: 'error', message: data.message };
+      const trimmed = line.replace(/\r$/, '');
+      if (trimmed.startsWith('data: ')) {
+        dataBuffer += trimmed.slice(6);
+      } else if (trimmed === '') {
+        // Empty line = end of SSE event, try to parse accumulated data
+        if (dataBuffer) {
+          try {
+            const data = JSON.parse(dataBuffer);
+            if (data.type === 'status') {
+              yield { type: 'status', message: data.message };
+            } else if (data.type === 'complete') {
+              yield { type: 'complete', data: data.data };
+            } else if (data.type === 'error') {
+              yield { type: 'error', message: data.message };
+            }
+          } catch (e) {
+            // Skip invalid JSON
           }
-        } catch (e) {
-          // Skip invalid JSON
+          dataBuffer = '';
         }
       }
     }

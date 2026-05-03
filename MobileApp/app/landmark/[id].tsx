@@ -64,7 +64,7 @@ export default function SpotDetailScreen() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ rating, aiMessage, userMessage, context: displayName, comment }),
+        body: JSON.stringify({ rating, aiMessage, userMessage, context: displayName, comment, threadId }),
       });
 
       if (!res.ok) throw new Error(`Feedback save failed (${res.status})`);

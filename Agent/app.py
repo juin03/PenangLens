@@ -38,8 +38,8 @@ from src.models import (
     GenerateRequest, GenerateResponse, UserPreferences,
     UpsertUserProfileRequest, RecommendRequest,
 )
-from src.extractor import extract_structured_itinerary, build_generate_prompt
-from src.token_tracker import TokenTracker
+from src.extractor import extract_structured_itinerary
+# Token tracker removed — using LangSmith for observability
 from src.logging_config import setup_logging, setup_langsmith, get_logger
 from src.personalization import personalization_service
 from src.itinerary_workflow import modify_itinerary, PlaceUnavailableError
@@ -193,9 +193,6 @@ app.add_middleware(
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# Token tracker (singleton)
-token_tracker = TokenTracker()
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -523,7 +520,6 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
             thread_id=actual_thread_id,
             intent=intent,
             structured_itinerary=structured,
-            token_usage=result.get("token_usage"),
             success=True,
         )
 
@@ -555,6 +551,11 @@ async def generate_itinerary(request: Request, gen_request: GenerateRequest):
     """
     request_id = request.headers.get("x-request-id")
     started = time.perf_counter()
+
+    # Validate time range — no overnight trips
+    def _t(s): return int(s.split(":")[0]) * 60 + int(s.split(":")[1])
+    if _t(gen_request.end_time) <= _t(gen_request.start_time):
+        raise HTTPException(status_code=400, detail="End time must be after start time. Overnight trips are not supported.")
 
     try:
         thread_id = str(uuid.uuid4())
@@ -691,6 +692,8 @@ async def chat_stream_v1(request: Request, chat_request: ChatRequest):
                 user_preferences=chat_request.user_preferences,
                 context=chat_request.context,
                 current_datetime=_get_current_datetime(),
+                history=chat_request.history,
+                current_itinerary=chat_request.current_itinerary,
             ):
                 yield {
                     "event": event.get("event_type", "token"),
@@ -752,14 +755,15 @@ async def generate_itinerary_stream(request: Request, gen_request: GenerateReque
     """Stream itinerary generation with status updates via SSE."""
     async def event_generator():
         try:
-            from src.itinerary_workflow import run_itinerary_workflow
+            import queue as _queue
             thread_id = str(uuid.uuid4())
+            status_queue = _queue.Queue()
 
-            yield {"event": "message", "data": json.dumps({'type': 'status', 'message': '🔍 Finding best spots...'})}
+            def status_callback(msg: str):
+                status_queue.put(msg)
 
-            # Run workflow in thread pool (it's synchronous)
             loop = asyncio.get_event_loop()
-            structured = await loop.run_in_executor(
+            future = loop.run_in_executor(
                 None,
                 lambda: run_itinerary_workflow(
                     description=gen_request.description,
@@ -769,11 +773,24 @@ async def generate_itinerary_stream(request: Request, gen_request: GenerateReque
                     start_location=gen_request.start_location,
                     travel_mode=gen_request.travel_mode,
                     start_date=gen_request.start_date,
+                    status_callback=status_callback,
                 )
             )
 
-            yield {"event": "message", "data": json.dumps({'type': 'status', 'message': '📍 Optimizing route...'})}
+            # Drain status messages while workflow runs
+            while not future.done():
+                try:
+                    msg = status_queue.get_nowait()
+                    yield {"event": "message", "data": json.dumps({'type': 'status', 'message': msg})}
+                except _queue.Empty:
+                    await asyncio.sleep(0.2)
 
+            # Drain any remaining messages
+            while not status_queue.empty():
+                msg = status_queue.get_nowait()
+                yield {"event": "message", "data": json.dumps({'type': 'status', 'message': msg})}
+
+            structured = await future
             complete_data = {
                 'type': 'complete',
                 'data': {
@@ -813,25 +830,6 @@ async def health_v1():
 
 
 @app.get("/api/v1/usage")
-async def get_usage():
-    """
-    Get token usage statistics across all sessions.
-
-    Returns global totals, per-request averages, and estimated costs.
-    Useful for monitoring API consumption during development/demo.
-    """
-    return token_tracker.get_global_stats()
-
-
-@app.get("/api/v1/usage/{thread_id}")
-async def get_session_usage(thread_id: str):
-    """Get token usage for a specific session."""
-    usage = token_tracker.get_session_usage(thread_id)
-    if not usage:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return usage
-
-
 @app.post("/api/v1/personalization/user-profile")
 async def upsert_user_profile(req: UpsertUserProfileRequest):
     """Upsert a user profile vector from onboarding/profile interests."""

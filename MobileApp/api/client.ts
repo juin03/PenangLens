@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const getBaseUrl = () => {
   if (__DEV__) {
-    const LAN_IP = '10.213.4.22';
+    const LAN_IP = '192.168.0.192'; //ipconfig | findstr "IPv4"
     if (Platform.OS === 'web') return 'http://localhost';
     return `http://${LAN_IP}`;
   }
@@ -154,6 +154,15 @@ export async function resetPassword(token: string, password: string): Promise<vo
 }
 
 // ──────────────────────────────── Itinerary API ────────────────────────
+
+export async function updateItinerary(id: string, data: { generatedNarrative?: string; name?: string; totalDuration?: number }) {
+  const headers = await authHeaders();
+  const res = await fetch(`${DATA_URL}/itineraries/${id}`, {
+    method: 'PATCH', headers, body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update itinerary');
+  return res.json();
+}
 
 export async function saveItinerary(data: {
   name: string; originalPrompt?: string; generatedNarrative?: string; totalDuration?: number; threadId?: string;

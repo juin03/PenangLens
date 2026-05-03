@@ -216,6 +216,7 @@ model ChatFeedback {
   aiMessage   String   @map("ai_message") @db.Text
   userMessage String?  @map("user_message") @db.Text
   context     String?  // spot name or page context
+  threadId    String?  @map("thread_id")
   createdAt   DateTime @default(now()) @map("created_at")
   userId      String?  @map("user_id")
 
@@ -228,6 +229,8 @@ model ItineraryFeedback {
   id          String    @id @default(uuid()) @map("itinerary_feedback_id")
   rating      Int       // 1–5 stars
   comment     String?   @db.Text
+  planVersion String?   @map("plan_version")
+  threadId    String?   @map("thread_id")
   status      String    @default("pending") // 'pending' | 'reviewed'
   createdAt   DateTime  @default(now()) @map("created_at")
   itineraryId String    @map("itinerary_id")

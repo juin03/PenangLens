@@ -5,8 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Slider from '@react-native-community/slider';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Colors, Radius, Spacing, scale, Shadow } from '@/constants/theme';
-import { saveItinerary } from '@/api/client';
-import { streamItinerary } from '@/api/streaming';
+import { saveItinerary, API_BASE_URL, getToken } from '@/api/client';
 import { INTEREST_TAGS } from '@/constants/taxonomy';
 
 const MAPS_API_KEY = '***REMOVED_KEY***';
@@ -63,62 +62,58 @@ export default function PlanTripScreen() {
 
   const handleGenerate = async () => {
     if (!description.trim()) { setError('Please describe what you want to do.'); return; }
-    setLoading(true); setError(''); setStatus('');
-    
+    setLoading(true); setError(''); setStatus('Planning your itinerary...');
+
     try {
-      const stream = streamItinerary({
-        description,
-        interests: selectedInterests,
-        start_time: startTime,
-        end_time: endTime,
-        start_location: startLocation.trim() || 'George Town, Penang',
-        travel_mode: travelMode,
+      const token = await getToken();
+      const res = await fetch(`${API_BASE_URL}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          description,
+          interests: selectedInterests,
+          start_time: startTime,
+          end_time: endTime,
+          start_location: startLocation.trim() || 'George Town, Penang',
+          travel_mode: travelMode,
+        }),
       });
-
-      for await (const update of stream) {
-        if (update.type === 'status') {
-          setStatus(update.message || '');
-        } else if (update.type === 'complete') {
-          const result = update.data;
-          
-          // Save to DB
-          let itineraryId: string | undefined;
-          try {
-            const structured = result.structured;
-            const saved = await saveItinerary({
-              name: structured?.summary || 'My Penang Trip',
-              originalPrompt: description,
-              generatedNarrative: JSON.stringify(structured),
-              totalDuration: structured?.total_duration_min,
-              threadId: result.thread_id,
-              stops: structured?.stops?.map((s: any, i: number) => ({
-                stopOrder: i + 1,
-                travelTimeMin: s.travel_to_next?.duration_min,
-                name: s.name,
-              })),
-            });
-            itineraryId = saved?.itinerary?.id;
-          } catch {}
-
-          // Navigate to result
-          router.push({
-            pathname: '/itinerary',
-            params: {
-              data: JSON.stringify(result.structured),
-              thread_id: result.thread_id,
-              start_time: startTime,
-              end_time: endTime,
-              ...(itineraryId ? { itinerary_id: itineraryId } : {}),
-            },
-          });
-          break;
-        } else if (update.type === 'error') {
-          setError(update.message || 'Generation failed');
-          break;
-        }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Server error ${res.status}`);
       }
+      const result = await res.json();
+      const structured = result.structured_itinerary;
+
+      let itineraryId: string | undefined;
+      try {
+        const saved = await saveItinerary({
+          name: structured?.summary || 'My Penang Trip',
+          originalPrompt: description,
+          generatedNarrative: JSON.stringify(structured),
+          totalDuration: structured?.total_duration_min,
+          threadId: result.thread_id,
+          stops: structured?.stops?.map((s: any, i: number) => ({
+            stopOrder: i + 1,
+            travelTimeMin: s.travel_to_next?.duration_min,
+            name: s.name,
+          })),
+        });
+        itineraryId = saved?.itinerary?.id;
+      } catch {}
+
+      router.push({
+        pathname: '/itinerary',
+        params: {
+          data: JSON.stringify(structured),
+          thread_id: result.thread_id,
+          start_time: startTime,
+          end_time: endTime,
+          ...(itineraryId ? { itinerary_id: itineraryId } : {}),
+        },
+      });
     } catch (err) {
-      setError('Failed to generate. Ensure Agent is running.');
+      setError('Failed to generate. Please try again.');
     } finally {
       setLoading(false);
       setStatus('');

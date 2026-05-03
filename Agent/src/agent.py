@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field as PydanticField
 from typing import Annotated, TypedDict, Literal, Optional
 from dotenv import load_dotenv
 
-from .token_tracker import TokenTracker
+
 
 from langchain_core.messages import (
     BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
@@ -140,13 +140,14 @@ def get_place_details_tool(
 
 
 @tool
-def optimize_route_tool(locations: str) -> str:
+def optimize_route_tool(locations: str, travel_mode: str = "walking") -> str:
     """
-    Optimize the order of locations to minimize total walking distance.
+    Optimize the order of locations to minimize total travel distance.
     Use this for itineraries with 3+ stops to find the most efficient route.
 
     Args:
         locations: Comma-separated list of location names
+        travel_mode: 'walking' or 'driving'
 
     Returns:
         Optimized order with total distance and duration
@@ -163,8 +164,10 @@ def optimize_route_tool(locations: str) -> str:
     if len(location_list) < 2:
         return "Need at least 2 locations to optimize"
 
+    mode = travel_mode if travel_mode in ("walking", "driving") else "walking"
+
     try:
-        result = optimize_route(location_list, use_brute_force=True)
+        result = optimize_route(location_list, use_brute_force=True, mode=mode)
 
         if result['total_distance'] is None:
             return f"Could not optimize route. Original order: {', '.join(location_list)}"
@@ -328,13 +331,22 @@ Always acknowledge these preferences in your response when relevant.
     itinerary_section = ""
     if current_itinerary and current_itinerary.get("stops"):
         import json as _json
+        # Extract dropped stops from summary note if present
+        summary_str = current_itinerary.get("summary", "")
+        dropped_note = ""
+        if "Not enough time for:" in summary_str:
+            for part in summary_str.split(" · "):
+                if "Not enough time for:" in part:
+                    dropped_names = part.replace("Not enough time for:", "").split(".")[0].strip()
+                    dropped_note = f"\nNOTE: These stops were dropped due to time constraints: {dropped_names}. If the user says to add them anyway or exceed the time, add THESE specific places — do NOT substitute with other places.\n"
+                    break
         itinerary_section = f"""
 
 ====================
 CURRENT ITINERARY (structured JSON — use this as the source of truth)
 ====================
 {_json.dumps(current_itinerary, indent=2)}
-
+{dropped_note}
 When the user asks to modify this itinerary (remove/add/swap a stop, change times, etc.),
 operate on the JSON above. Always call format_itinerary_tool with the updated stops.
 IMPORTANT: When modifying, preserve photo_url, rating, address, and other metadata from the original stops.
@@ -985,25 +997,10 @@ def run_agent(
             "blocked": True,
         }
 
-    # Track token usage from all AIMessages in the final state
-    tracker = TokenTracker()
-    messages = final_state.get("messages", [])
-    for msg in messages:
-        if isinstance(msg, AIMessage):
-            # LangChain stores usage at msg.usage_metadata (top-level)
-            um = getattr(msg, 'usage_metadata', None)
-            if um:
-                tracker.record_usage(
-                    thread_id=thread_id,
-                    usage_metadata=dict(um) if um else {},
-                )
-    token_usage = tracker.get_session_usage(thread_id)
-
     return {
         "state": final_state,
         "thread_id": thread_id,
         "blocked": False,
-        "token_usage": token_usage,
     }
 
 
@@ -1014,6 +1011,7 @@ async def run_agent_stream(
     context: str | None = None,
     current_datetime: str | None = None,
     current_itinerary: dict | None = None,
+    history: list | None = None,
 ):
     """
     Run the agent with streaming (async generator).
@@ -1060,8 +1058,16 @@ async def run_agent_stream(
 
     prefs_text = format_user_preferences(user_preferences)
 
+    history_msgs = []
+    if history:
+        for h in history[-10:]:
+            if h.get("role") == "user":
+                history_msgs.append(HumanMessage(content=h["content"]))
+            elif h.get("role") in ("assistant", "ai"):
+                history_msgs.append(AIMessage(content=h["content"]))
+
     input_state = {
-        "messages": [HumanMessage(content=sanitized)],
+        "messages": history_msgs + [HumanMessage(content=sanitized)],
         "correction_count": 0,
         "user_preferences_text": prefs_text,
         "is_blocked": False,
@@ -1113,16 +1119,7 @@ async def run_agent_stream(
                 }
 
             elif kind == "on_chat_model_end":
-                # Extract token usage from completed LLM call
-                output = event.get("data", {}).get("output")
-                if output:
-                    um = getattr(output, 'usage_metadata', None)
-                    if um:
-                        tracker = TokenTracker()
-                        tracker.record_usage(
-                            thread_id=thread_id,
-                            usage_metadata=dict(um) if um else {},
-                        )
+                pass  # token tracking handled by LangSmith
 
     except Exception as e:
         logger.error(f"Streaming error: {e}", exc_info=True)
@@ -1132,14 +1129,10 @@ async def run_agent_stream(
             "thread_id": thread_id,
         }
 
-    # Include token usage in done event
-    tracker = TokenTracker()
-    usage = tracker.get_session_usage(thread_id)
     yield {
         "event_type": "done",
         "data": "",
         "thread_id": thread_id,
-        "token_usage": usage,
     }
 
 
@@ -1195,19 +1188,19 @@ def get_session_history(thread_id: str) -> list[dict]:
 
 
 def delete_session(thread_id: str) -> bool:
-    """
-    Delete a session's state.
-
-    Note: MemorySaver stores in-memory, so this clears the thread state.
-    For SqliteSaver, this would delete from the database.
-
-    Returns:
-        True if successful
-    """
-    # MemorySaver doesn't have a direct delete, but we can
-    # effectively clear it by noting the ID is invalid
-    logger.info(f"Session {thread_id[:8]} marked for deletion")
-    return True
+    """Delete a session's in-memory state from MemorySaver."""
+    _, checkpointer = get_graph()
+    try:
+        config = {"configurable": {"thread_id": thread_id}}
+        # MemorySaver stores state in its .storage dict keyed by (thread_id, ...)
+        keys_to_delete = [k for k in checkpointer.storage if k[0] == thread_id]
+        for k in keys_to_delete:
+            del checkpointer.storage[k]
+        logger.info(f"Session {thread_id[:8]} deleted ({len(keys_to_delete)} entries)")
+        return True
+    except Exception as e:
+        logger.warning(f"delete_session failed for {thread_id[:8]}: {e}")
+        return False
 
 
 if __name__ == "__main__":

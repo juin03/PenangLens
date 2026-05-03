@@ -8,14 +8,13 @@ export async function GET(request: NextRequest) {
   const limit = 20;
 
   // Only show itineraries that have feedback
-  const where: any = { feedbacks: { some: {} } };
+  const feedbackWhere: any = {};
+  if (rating === 'good') feedbackWhere.rating = { gte: 4 };
+  else if (rating === 'bad') feedbackWhere.rating = { lte: 2 };
+  if (status === 'pending') feedbackWhere.status = 'pending';
+  else if (status === 'reviewed') feedbackWhere.status = 'reviewed';
 
-  if (rating === 'good') where.feedbacks = { some: { rating: { gte: 4 } } };
-  else if (rating === 'bad') where.feedbacks = { some: { rating: { lte: 2 } } };
-
-  // Filter by review status (stored on the itinerary feedback)
-  if (status === 'pending') where.feedbacks = { ...where.feedbacks, some: { ...where.feedbacks?.some, status: 'pending' } };
-  else if (status === 'reviewed') where.feedbacks = { ...where.feedbacks, some: { ...where.feedbacks?.some, status: 'reviewed' } };
+  const where: any = { feedbacks: { some: feedbackWhere } };
 
   const [itineraries, total] = await Promise.all([
     prisma.itinerary.findMany({

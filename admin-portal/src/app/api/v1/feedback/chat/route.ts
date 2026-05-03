@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       : context;
 
     await (prisma as any).chatFeedback.create({
-      data: { rating: Number(rating), aiMessage, userMessage, context: contextWithComment, userId },
+      data: { rating: Number(rating), aiMessage, userMessage, context: contextWithComment, threadId: body.threadId ?? null, userId },
     });
     return NextResponse.json({ success: true });
   } catch (error) {

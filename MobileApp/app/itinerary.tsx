@@ -6,7 +6,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Radius, Spacing, scale, Shadow } from '@/constants/theme';
-import { API_BASE_URL, getToken, saveChatMessages } from '@/api/client';
+import { API_BASE_URL, getToken, saveChatMessages, updateItinerary } from '@/api/client';
 import { MarkdownText } from '@/components/MarkdownText';
 
 /* ─── Types ─────────────────────────────────────────────── */
@@ -50,31 +50,13 @@ function extractTimeWindowFromText(text: string): { start_time: string; end_time
 
 /* ─── Plan Card ─────────────────────────────────────────── */
 function PlanCard({
-  item, onRate, onStopPress
+  item, onStopPress
 }: {
   item: PlanMessage & { id: string };
-  onRate: (itineraryId: string, verdict: 'good' | 'bad', comment?: string) => Promise<boolean>;
   onStopPress: (stop: Stop) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const [rated, setRated] = useState(false);
-  const [ratingModal, setRatingModal] = useState(false);
-  const [pendingVerdict, setPendingVerdict] = useState<'good' | 'bad'>('bad');
-  const [comment, setComment] = useState('');
   const d = item.data;
-
-  const submitRating = async () => {
-    const ok = await onRate(item.id, pendingVerdict, comment.trim() || undefined);
-    if (ok) {
-      setRated(true);
-      setRatingModal(false);
-    }
-  };
-
-  const submitGood = async () => {
-    const ok = await onRate(item.id, 'good');
-    if (ok) setRated(true);
-  };
 
   return (
     <View style={styles.planCard}>
@@ -82,7 +64,12 @@ function PlanCard({
       <TouchableOpacity onPress={() => setCollapsed(c => !c)} style={styles.planHeader}>
         <View style={{ flex: 1 }}>
           <Text style={styles.planVersion}>📋 Plan v{item.version}</Text>
-          <Text style={styles.planTitle} numberOfLines={1}>{d.summary || 'Penang Itinerary'}</Text>
+          <Text style={styles.planTitle} numberOfLines={1}>{(d.summary || 'Penang Itinerary').split(' · ').slice(0,2).join(' · ')}</Text>
+          {d.summary && d.summary.split(' · ').slice(2).map((note, i) => (
+            <Text key={i} style={{ fontSize: scale(11), color: '#f59e0b', marginTop: 2, fontWeight: '600' }}>
+              ⚠️ {note}
+            </Text>
+          ))}
           <View style={styles.planMeta}>
             {(d.start_time || d.end_time) ? (
               <Text style={styles.planMetaText}>🕘 {d.start_time ?? '—'} - {d.end_time ?? '—'}</Text>
@@ -130,50 +117,6 @@ function PlanCard({
           )}
         </View>
       ))}
-
-      {/* Rating bar */}
-      {!collapsed && (
-        <View style={styles.ratingBar}>
-          {rated ? (
-            <Text style={styles.ratedText}>✅ Thanks for your feedback!</Text>
-          ) : (
-            <>
-              <Text style={styles.rateLabel}>Was this plan helpful?</Text>
-              <TouchableOpacity style={styles.verdictBtn} onPress={() => { void submitGood(); }}>
-                <Text style={styles.verdictText}>👍 Good</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.verdictBtn} onPress={() => { setPendingVerdict('bad'); setRatingModal(true); }}>
-                <Text style={styles.verdictText}>👎 Bad</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-      )}
-
-      {/* Rating modal */}
-      <Modal visible={ratingModal} transparent animationType="fade" onRequestClose={() => setRatingModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Tell us what was bad 👎</Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="Optional: what should be improved?"
-              placeholderTextColor={Colors.textMuted}
-              value={comment}
-              onChangeText={setComment}
-              multiline
-            />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.modalCancel} onPress={() => setRatingModal(false)}>
-                <Text style={{ color: Colors.textSecondary }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.modalSubmit} onPress={() => { void submitRating(); }}>
-                <Text style={{ color: Colors.white, fontWeight: '700' }}>Submit</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -195,13 +138,23 @@ export default function ItineraryScreen() {
       start_time: initial.start_time ?? (params.start_time as string | undefined),
       end_time: initial.end_time ?? (params.end_time as string | undefined),
     };
-    return [{ id: 'plan-0', type: 'plan', version: 1, data: initial }];
+    const msgs: ThreadItem[] = [{ id: 'plan-0', type: 'plan', version: 1, data: initial }];
+    // Surface plan notes as an AI chat bubble
+    const notes = (initial.summary || '').split(' · ').slice(2);
+    if (notes.length > 0) {
+      msgs.push({ id: 'note-0', type: 'message', role: 'ai', text: notes.join(' ') });
+    }
+    return msgs;
   });
   const [ratedChatMessages, setRatedChatMessages] = useState<Record<string, 1 | -1>>({});
   const [chatFeedbackModal, setChatFeedbackModal] = useState(false);
   const [chatFeedbackComment, setChatFeedbackComment] = useState('');
   const [pendingBadFeedback, setPendingBadFeedback] = useState<{ messageId: string; aiMessage: string; userMessage?: string } | null>(null);
   const [input, setInput] = useState('');
+  const [threadRated, setThreadRated] = useState(false);
+  const [threadRatingModal, setThreadRatingModal] = useState(false);
+  const [threadRatingComment, setThreadRatingComment] = useState('');
+  const [showThreadComment, setShowThreadComment] = useState(false);
   const [typing, setTyping] = useState(false);
   const [currentThreadId, setCurrentThreadId] = useState<string | undefined>(params.thread_id as string | undefined);
   const threadId = currentThreadId;
@@ -241,14 +194,24 @@ export default function ItineraryScreen() {
         // Restore threadId from saved itinerary
         if ((itinerary as any)?.threadId) setCurrentThreadId((itinerary as any).threadId);
 
-        // Load saved chat history
+        // Load saved chat history — render plan snapshots as PlanCard items
+        let planVersion = 1;
         const chatHistory: ThreadItem[] = Array.isArray((itinerary as any)?.chatHistory)
-          ? (itinerary as any).chatHistory.map((m: any, i: number) => ({
-              id: `saved-chat-${i}`,
-              type: "message" as const,
-              role: m.role === "user" ? "user" as const : "ai" as const,
-              text: m.content,
-            }))
+          ? (itinerary as any).chatHistory.map((m: any, i: number) => {
+              if (m.role === 'plan') {
+                try {
+                  const planData = JSON.parse(m.content) as ItineraryData;
+                  planVersion += 1;
+                  return { id: `saved-plan-${i}`, type: 'plan' as const, version: planVersion, data: planData };
+                } catch { return null; }
+              }
+              return {
+                id: `saved-chat-${i}`,
+                type: 'message' as const,
+                role: m.role === 'user' ? 'user' as const : 'ai' as const,
+                text: m.content,
+              };
+            }).filter(Boolean)
           : [];
 
         let structuredFromNarrative: ItineraryData | null = null;
@@ -265,16 +228,20 @@ export default function ItineraryScreen() {
 
         if (structuredFromNarrative) {
           if (!isMounted) return;
-          setMessages([{
-            id: 'plan-saved-0',
-            type: 'plan',
-            version: 1,
+          const planMsg = {
+            id: 'plan-saved-0', type: 'plan' as const, version: 1,
             data: {
               ...structuredFromNarrative,
               start_time: structuredFromNarrative.start_time ?? startTimeParam,
               end_time: structuredFromNarrative.end_time ?? endTimeParam,
             },
-          }, ...chatHistory]);
+          };
+          const initMsgs: ThreadItem[] = [planMsg, ...chatHistory];
+          const notes = (structuredFromNarrative.summary || '').split(' · ').slice(2);
+          if (notes.length > 0 && chatHistory.length === 0) {
+            initMsgs.splice(1, 0, { id: 'note-saved-0', type: 'message', role: 'ai', text: notes.join(' ') });
+          }
+          setMessages(initMsgs);
           return;
         }
 
@@ -362,12 +329,22 @@ export default function ItineraryScreen() {
           travel_mode: structured.travel_mode ?? latestPlan?.data.travel_mode,
         };
         pushMsg({ id: `plan-${Date.now()}`, type: 'plan', version: versionCount + 1, data: nextPlan });
+        // Persist updated itinerary and save plan snapshot to chat history
+        const dbId = itineraryDbId || itineraryIdParam;
+        if (dbId) {
+          updateItinerary(dbId, { generatedNarrative: JSON.stringify(nextPlan), name: nextPlan.summary?.split(' · ').slice(0,2).join(' · ') }).catch(() => {});
+          saveChatMessages(dbId, [
+            {role: "user", content: text},
+            {role: "assistant", content: response},
+            {role: "plan", content: JSON.stringify(nextPlan)},
+          ]).catch(() => {});
+        }
       } else {
         pushMsg({ id: `ai-${Date.now()}`, type: 'message', role: 'ai', text: response });
+        // Save chat to DB
+        const dbId = itineraryDbId || itineraryIdParam;
+        if (dbId && response) saveChatMessages(dbId, [{role: "user", content: text}, {role: "assistant", content: response}]).catch(() => {});
       }
-      // Save chat to DB
-      const dbId = itineraryDbId || itineraryIdParam;
-      if (dbId && response) saveChatMessages(dbId, [{role: "user", content: text}, {role: "assistant", content: response}]).catch(() => {});
     } catch {
       pushMsg({ id: `err-${Date.now()}`, type: 'message', role: 'ai', text: 'Sorry, something went wrong. Please try again.' });
     } finally {
@@ -377,7 +354,7 @@ export default function ItineraryScreen() {
   };
 
   const handleRate = useCallback(async (planId: string, verdict: 'good' | 'bad', comment?: string) => {
-    const dbId = itineraryDbId;
+    const dbId = itineraryDbId || itineraryIdParam;
     if (!dbId) {
       Alert.alert('Could not save feedback', 'This itinerary has no saved ID yet. Please generate a new plan and try again.');
       return false;
@@ -393,7 +370,7 @@ export default function ItineraryScreen() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ itineraryId: dbId, rating, comment }),
+        body: JSON.stringify({ itineraryId: dbId, rating, comment, planVersion: planId, threadId: threadId }),
       });
 
       if (!response.ok) {
@@ -407,7 +384,7 @@ export default function ItineraryScreen() {
       Alert.alert('Could not save feedback', 'Network error while submitting rating.');
       return false;
     }
-  }, [itineraryDbId]);
+  }, [itineraryDbId, itineraryIdParam]);
 
   const sendChatFeedback = useCallback(async (
     messageId: string,
@@ -430,6 +407,7 @@ export default function ItineraryScreen() {
           aiMessage,
           userMessage,
           context: 'Itinerary Chat',
+          threadId,
           comment,
         }),
       });
@@ -457,7 +435,7 @@ export default function ItineraryScreen() {
 
   const renderItem = ({ item, index }: { item: ThreadItem; index: number }) => {
     if (item.type === 'plan') {
-      return <PlanCard item={item as PlanMessage & { id: string }} onRate={handleRate} onStopPress={setSelectedStop} />;
+      return <PlanCard item={item as PlanMessage & { id: string }} onStopPress={setSelectedStop} />;
     }
     const isUser = item.role === 'user';
 
@@ -537,7 +515,13 @@ export default function ItineraryScreen() {
           <Text style={styles.headerTitle}>Your Itinerary</Text>
           <Text style={styles.headerSub}>{versionCount} plan{versionCount !== 1 ? 's' : ''} · Tap to modify or ask questions</Text>
         </View>
-        <TouchableOpacity onPress={() => router.replace('/(tabs)')} style={styles.doneBtn}>
+        <TouchableOpacity onPress={() => {
+          if (!threadRated && messages.some(m => m.type === 'plan')) {
+            setThreadRatingModal(true);
+          } else {
+            router.replace('/(tabs)');
+          }
+        }} style={styles.doneBtn}>
           <Text style={styles.doneBtnText}>✓ Done</Text>
         </TouchableOpacity>
       </View>
@@ -551,6 +535,53 @@ export default function ItineraryScreen() {
         contentContainerStyle={styles.thread}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
       />
+
+      {/* Thread rating modal — shown on Done press */}
+      <Modal visible={threadRatingModal} transparent animationType="fade" onRequestClose={() => { setThreadRatingModal(false); router.replace('/(tabs)'); }}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>How was your trip plan? 🗺️</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: Spacing.md, marginBottom: Spacing.md }}>
+              <TouchableOpacity style={styles.verdictBtn} onPress={async () => {
+                await handleRate('thread', 'good');
+                setThreadRated(true);
+                setThreadRatingModal(false);
+                router.replace('/(tabs)');
+              }}>
+                <Text style={{ fontSize: scale(24) }}>👍</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.verdictBtn} onPress={() => setShowThreadComment(true)}>
+                <Text style={{ fontSize: scale(24) }}>👎</Text>
+              </TouchableOpacity>
+            </View>
+            {showThreadComment && (
+              <TextInput
+                style={styles.modalInput}
+                placeholder="What could be better? (optional)"
+                placeholderTextColor={Colors.textMuted}
+                value={threadRatingComment}
+                onChangeText={setThreadRatingComment}
+                multiline
+              />
+            )}
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancel} onPress={() => { setThreadRatingModal(false); router.replace('/(tabs)'); }}>
+                <Text style={{ color: Colors.textSecondary }}>Skip</Text>
+              </TouchableOpacity>
+              {showThreadComment && (
+                <TouchableOpacity style={styles.modalSubmit} onPress={async () => {
+                  await handleRate('thread', 'bad', threadRatingComment.trim() || undefined);
+                  setThreadRated(true);
+                  setThreadRatingModal(false);
+                  router.replace('/(tabs)');
+                }}>
+                  <Text style={{ color: Colors.white, fontWeight: '700' }}>Submit</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Typing indicator */}
       {typing && (
@@ -639,9 +670,21 @@ export default function ItineraryScreen() {
                     <Text style={styles.stopModalMeta}>⭐ {selectedStop.rating.toFixed(1)}</Text>
                   ) : null}
                   {selectedStop?.opening_hours ? (
-                    <Text style={[styles.stopModalMeta, { color: selectedStop.opening_hours.includes('Open') || selectedStop.opening_hours.includes('open') ? '#10b981' : '#ef4444', flex: 1 }]}>
-                      {selectedStop.opening_hours}
-                    </Text>
+                    <View style={{ flex: 1 }}>
+                      {selectedStop.opening_hours.split('|').map((line, i) => {
+                        const trimmed = line.trim();
+                        const isToday = trimmed.startsWith(new Date().toLocaleDateString('en-US', { weekday: 'long' }));
+                        return (
+                          <Text key={i} style={[styles.stopModalMeta, {
+                            color: '#374151',
+                            fontWeight: isToday ? '700' : '400',
+                            marginBottom: 2,
+                          }]}>
+                            🕐 {trimmed}
+                          </Text>
+                        );
+                      })}
+                    </View>
                   ) : null}
                 </View>
                 

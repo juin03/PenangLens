@@ -61,6 +61,7 @@ class WorkflowState(TypedDict):
     result: Optional[ItineraryData]
     error: Optional[str]
     recommendations: Optional[str]
+    plan_note: Optional[str]
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +116,11 @@ def parse_description_node(state: WorkflowState) -> dict:
     prompt = f"""Description: "{description}"
 
 Extract:
-1. specific_places: named places the user explicitly wants (e.g. ["Kek Lok Si", "Penang Hill"])
+1. specific_places: ONLY named specific attractions/establishments the user explicitly wants to visit
+   (e.g. ["Kek Lok Si", "Penang Hill", "Khoo Kongsi"]).
+   EXCLUDE: generic nouns ("temples", "beach", "hill", "food"), region names ("Penang", "George Town",
+   "Malaysia", "Penang Island", "P. Pinang", "Pulau Pinang"), and vague references ("some temples", "a beach").
+   If unsure, leave the list empty.
 2. cuisines: specific foods/cuisines mentioned (e.g. ["char kuey teow", "nasi kandar"])
 3. location_anchor: a specific area/street to search near, if mentioned (e.g. "Armenian Street"), else null
 
@@ -141,14 +146,7 @@ Return JSON only:
     pinned = []
     api_key = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
     
-    # Filter out generic location names
-    GENERIC_LOCATIONS = {"penang", "george town", "georgetown", "malaysia", "pulau pinang"}
-    
     for place_name in parsed.get("specific_places", []):
-        if place_name.lower() in GENERIC_LOCATIONS:
-            logger.info(f"parse_description_node: skipping generic location '{place_name}'")
-            continue
-            
         try:
             place_id = _find_place_id(place_name, api_key)
             if place_id:
@@ -316,7 +314,10 @@ def plan_node(state: WorkflowState) -> dict:
         pinned_note = f"\n⚠️ MANDATORY stops (user explicitly requested): {', '.join(p['name'] for p in pinned)} — these MUST appear.\n"
     cuisine_note = ""
     if cuisine_hints:
-        cuisine_note = f"\nUser wants these cuisines: {', '.join(cuisine_hints)}\n"
+        if len(cuisine_hints) >= 3:
+            cuisine_note = f"\nUser wants these foods: {', '.join(cuisine_hints)}. There are {len(cuisine_hints)} food requests — STRONGLY prefer a single hawker centre (e.g. Gurney Drive, New Lane, Red Garden) that serves multiple dishes over separate stops for each food. Explain which dishes are available there in the reason.\n"
+        else:
+            cuisine_note = f"\nUser wants these cuisines: {', '.join(cuisine_hints)}\n"
     date_hint = f"\nTrip date: {start_date}" if start_date else ""
 
     rec_note = ""
@@ -338,23 +339,34 @@ Rules:
 - Each place must be a real establishment with a name (e.g. "Tek Sen Restaurant", not "lunch spot")
 - For each stop, provide 2 alternative places nearby in case the primary doesn't exist or is closed
 - USE THE FULL TIME BUDGET of {budget} minutes — itinerary must end close to {state['end_time']} (within 30 min)
-  * Calculate: sum of all visit durations + (number_of_stops × 15 min for travel) must be close to {budget}
-  * For {budget} min with ~15 min travel per stop: total visit time should be ~{budget - 8 * 15} to {budget} min
+  * Estimate travel time between stops: walking ~15-20 min, driving ~20-40 min depending on distance
+  * Calculate: sum of all visit durations + estimated travel times must be close to {budget}
   * Do NOT exceed {state['end_time']} — the last stop must finish by {state['end_time']}
 - Schedule food at PROPER meal times — plan the itinerary so food stops land at these times:
   * Breakfast: 07:00-09:00 (if trip starts before 08:00)
-  * Lunch: 12:00-13:30 (MUST include a proper SIT-DOWN MEAL — nasi kandar, rice, noodles. Desserts like chendul can be added as a bonus but don't count as the meal)
+  * Lunch: 12:00-13:30 (MUST include a proper SIT-DOWN MEAL — nasi kandar, rice, noodles, hawker centre. Desserts/snacks like chendul, cendol, ice kacang, popiah, kuih do NOT count as lunch)
   * Dinner: 18:30-20:00 (if trip extends past 18:30, MUST have a food stop arriving in this window)
   * Do NOT place hawker centres or restaurants at 3-4pm as the main food stop — that's not a meal time
+  * If a major attraction (Penang Hill, Kek Lok Si, ESCAPE) ends between 15:00-17:00, schedule the next food stop as DINNER (18:00-19:00), not an immediate hawker visit at 3-4pm
+  * Fill the 15:00-18:00 gap with cultural/heritage/art stops, not food
   * If user selected "Food" as interest, include more food variety (meal + dessert + snack is great)
   * Arrange non-food stops around these meal anchors
 - Don't put two food stops consecutively unless it's a food tour
 - Penang Hill = one stop (3+ hours, includes funicular + attractions on top). If Penang Hill spans lunch time, assume eating on the hill (David Brown's) — no separate lunch stop needed.
 - Kek Lok Si = one stop (2+ hours, large complex)
 - ESCAPE Theme Park = half-day stop (4+ hours minimum). It's a full adventure park — don't schedule it for 1 hour.
+- Hawker centres and food courts (Gurney Drive, New Lane, Pulau Tikus, Red Garden etc.) = minimum 45 min. They are sit-down eating experiences, not quick snacks. Never allocate less than 45 min.
 - Do NOT put Kek Lok Si + Penang Hill back-to-back without a food break — that's 5+ hours without eating
   * CORRECT order: Kek Lok Si (09:00-11:00) → Lunch (11:30-12:30) → Penang Hill (13:00-16:00)
   * WRONG order: Penang Hill (09:00-12:00) → Kek Lok Si (12:06-14:06) → Lunch at 14:30 (too late!)
+- If the user requested many specific places but the time budget is too short to fit them all:
+  * Pick the best subset that realistically fits within the time budget
+  * Add a "note" key to your JSON response (outside the stops array) explaining which requested places were left out and why, e.g. "note": "Kek Lok Si and Penang Hill were requested but cannot fit in 2 hours — focusing on George Town heritage instead."
+- If the user wants many different foods (4+ dishes or cuisines):
+  * Consider recommending a single hawker centre or food court that serves multiple dishes (e.g. Gurney Drive Hawker Centre, New Lane Hawker Centre) instead of separate stops for each
+  * In the "reason" explain which dishes can be found there
+- If the user's ONLY interest is Food (no other interests selected): plan ONLY food stops — hawker centres, restaurants, cafes, food stalls. Do NOT include attractions, museums, temples, or street art.
+- Do NOT plan two stops for the same dish (e.g. two roti canai stalls, two char kuey teow stalls) — pick the single best one for each dish.
 
 CRITICAL travel mode rules:
 - For WALKING mode: ALL stops must be in the SAME walkable area (within ~2km of each other)
@@ -384,13 +396,23 @@ Return JSON array:
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
-    planned = json.loads(raw.strip())
+    parsed = json.loads(raw.strip())
+
+    # LLM may return {"stops": [...], "note": "..."} or just [...]
+    if isinstance(parsed, dict):
+        planned = parsed.get("stops", [])
+        note = parsed.get("note", "")
+    else:
+        planned = parsed
+        note = ""
 
     logger.info(f"plan_node: LLM planned {len(planned)} stops")
+    if note:
+        logger.info(f"plan_node: note — {note}")
     for s in planned:
         logger.info(f"  → {s['name']} ({s.get('visit_duration_min')}min) alts={s.get('alternatives', [])}")
 
-    return {"selected_stops": planned}
+    return {"selected_stops": planned, "plan_note": note}
 
 
 # ---------------------------------------------------------------------------
@@ -438,6 +460,7 @@ def enrich_node(state: WorkflowState) -> dict:
                 "is_open": details.get("opening_hours", {}).get("open_now"),
                 "editorial": details.get("editorial_summary", {}).get("overview", ""),
                 "google_maps_url": f"https://www.google.com/maps/search/?api=1&query={details['name'].replace(' ', '+')}&query_place_id={place_id}",
+                "_types": details.get("types", []),
             }
             if candidate_name != name:
                 logger.info(f"enrich_node: '{name}' not found, using alternative '{details['name']}'")
@@ -446,7 +469,12 @@ def enrich_node(state: WorkflowState) -> dict:
             break
 
         if found:
-            enriched.append(found)
+            bad_types = {"taxi_stand", "transit_station", "bus_station", "airport", "car_rental", "car_repair", "car_wash", "gas_station", "parking", "post_office", "bank", "atm", "hospital", "pharmacy", "police", "fire_station", "laundry", "moving_company", "storage"}
+            place_types = set(found.pop("_types", []))
+            if place_types & bad_types:
+                logger.warning(f"enrich_node: ✗ '{found['name']}' — wrong place type {place_types & bad_types}, dropping")
+            else:
+                enriched.append(found)
         else:
             logger.warning(f"enrich_node: ✗ '{name}' and all alternatives not found, dropping")
 
@@ -458,126 +486,6 @@ def enrich_node(state: WorkflowState) -> dict:
     order = [e["name"] for e in enriched]
     logger.info(f"enrich_node: {len(enriched)}/{len(planned)} stops validated")
     return {"candidates": enriched, "optimized_order": order, "selected_stops": enriched}
-
-
-# ---------------------------------------------------------------------------
-# Node 2.5: schedule_node — LLM orders stops with real hours + time awareness
-# ---------------------------------------------------------------------------
-
-def schedule_node(state: WorkflowState) -> dict:
-    """LLM reorders and schedules stops using real opening hours data."""
-    logger.info("[schedule_node] starting — LLM scheduling with real hours")
-    enriched = state["candidates"]
-    if not enriched:
-        return {}
-
-    start_time = state["start_time"]
-    end_time = state["end_time"]
-    travel_mode = state["travel_mode"]
-    budget = _budget_minutes(start_time, end_time)
-
-    # Build stop info with real hours and coordinates
-    stop_info = ""
-    for i, s in enumerate(enriched, 1):
-        hours = s.get("hours", "unknown")
-        lat, lng = s.get("lat"), s.get("lng")
-        coord = f" (loc: {lat:.4f},{lng:.4f})" if lat and lng else ""
-        stop_info += f"{i}. {s['name']} [{s.get('category')}] — {s.get('visit_duration_min', 60)}min, hours: {hours}{coord}\n"
-
-    system = "You are a smart Penang travel guide. Schedule stops in the best order. Return ONLY valid JSON."
-    prompt = f"""Schedule these stops into a day itinerary:
-
-{stop_info}
-Trip: {start_time} – {end_time} ({budget} min), travel mode: {travel_mode}
-
-Rules:
-- Order stops so each is visited WHEN IT IS OPEN. Check the hours carefully.
-  * If a place opens at 8:30 AM, don't schedule it before 8:30
-  * If a place closes at 5:00 PM, finish the visit before 5:00 PM
-- Group NEARBY stops together (use coordinates — closer lat/lng = nearby)
-- Schedule food at proper meal times:
-  * Lunch: arrive at food stop between 12:00-13:30
-  * Dinner: arrive at food stop between 18:30-19:30 (if trip extends past 18:30)
-- Estimate ~10-15 min driving or ~15-20 min walking between stops
-- Fill the FULL time budget — last stop should end close to {end_time}
-- If a stop cannot fit within its opening hours given the schedule, DROP it and note why
-- If you need more stops to fill the budget, suggest new ones with "added": true
-
-Return JSON array in scheduled order:
-[
-  {{"name": "Place Name", "visit_duration_min": 90, "scheduled_arrival": "09:00", "reason": "opens at 8:30, good morning start"}},
-  ...
-]"""
-
-    try:
-        llm = _create_reasoning_llm()
-        response = llm.invoke([SystemMessage(content=system), HumanMessage(content=prompt)])
-        raw = response.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        scheduled = json.loads(raw.strip())
-
-        logger.info(f"schedule_node: scheduled {len(scheduled)} stops")
-        for s in scheduled:
-            logger.info(f"  → {s['name']} at {s.get('scheduled_arrival', '?')} ({s.get('visit_duration_min')}min) — {s.get('reason', '')[:60]}")
-
-        # Update order and durations from schedule
-        new_order = []
-        enriched_lookup = {e["name"].lower(): e for e in enriched}
-        new_selected = []
-
-        api_key = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
-
-        for s in scheduled:
-            name = s["name"]
-            # Find in enriched (fuzzy)
-            match = enriched_lookup.get(name.lower())
-            if not match:
-                for k, v in enriched_lookup.items():
-                    if name.lower() in k or k in name.lower():
-                        match = v
-                        break
-
-            if match:
-                match["visit_duration_min"] = s.get("visit_duration_min", match.get("visit_duration_min", 60))
-                if s.get("scheduled_arrival"):
-                    match["scheduled_arrival"] = s["scheduled_arrival"]
-                new_order.append(match["name"])
-                new_selected.append(match)
-            elif s.get("added"):
-                # LLM suggested a new stop — enrich it
-                pid = _find_place_id(name, api_key) if api_key else None
-                if pid:
-                    det = _get_place_details_by_id(pid, api_key)
-                    if det.get("name"):
-                        geo = det.get("geometry", {}).get("location", {})
-                        wt = det.get("opening_hours", {}).get("weekday_text", [])
-                        new_stop = {
-                            "name": det["name"], "place_id": pid,
-                            "category": s.get("category", "attraction"),
-                            "visit_duration_min": s.get("visit_duration_min", 60),
-                            "rating": det.get("rating"),
-                            "address": det.get("vicinity", ""),
-                            "lat": geo.get("lat"), "lng": geo.get("lng"),
-                            "photo_reference": det.get("photo_reference"),
-                            "hours": " | ".join(wt) if wt else "",
-                            "editorial": det.get("editorial_summary", {}).get("overview", ""),
-                            "google_maps_url": f"https://www.google.com/maps/search/?api=1&query={det['name'].replace(' ', '+')}&query_place_id={pid}",
-                        }
-                        new_order.append(new_stop["name"])
-                        new_selected.append(new_stop)
-                        enriched.append(new_stop)
-                        logger.info(f"schedule_node: added new stop '{det['name']}'")
-
-        if new_order:
-            return {"optimized_order": new_order, "selected_stops": new_selected, "candidates": enriched}
-
-    except Exception as e:
-        logger.warning(f"schedule_node: failed ({e}), keeping original order")
-
-    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -650,6 +558,7 @@ def travel_time_node(state: WorkflowState) -> dict:
 def validate_node(state: WorkflowState) -> dict:
     """Drop stops with excessive travel time or past end_time. Recalculate."""
     order = list(state.get("optimized_order", []))
+    original_order_snapshot = list(order)  # capture before any drops
     segments = state.get("travel_segments", {})
     selected = list(state.get("selected_stops", []))
     travel_mode = state["travel_mode"]
@@ -657,16 +566,67 @@ def validate_node(state: WorkflowState) -> dict:
     start_min = _time_to_min(state["start_time"])
     max_walk_min = 35
     original_count = len(order)
+    dropped_stops: list[str] = []
 
     logger.info(f"validate_node: checking {len(order)} stops, mode={travel_mode}, end={state['end_time']}")
 
     stop_lookup = {s["name"]: s for s in selected}
     cand_lookup = {s["name"]: s for s in state.get("candidates", [])}
+    food_kw = {"hawker", "restaurant", "cafe", "food", "kandar", "laksa", "koay", "mee", "chendul", "kopitiam", "foodstall", "foodcourt"}
+    snack_kw = {"chendul", "cendol", "ice kacang", "ais kacang", "durian", "dessert", "bakery", "cake", "popiah", "kuih"}
+    def _is_food_stop(name: str, cand: dict) -> bool:
+        return cand.get("category") == "food" or any(w in name.lower() for w in food_kw)
+    def _is_snack_stop(name: str) -> bool:
+        return any(w in name.lower() for w in snack_kw)
+
+    # Only enforce consecutive food stop rule for mixed itineraries
+    interests = state.get("interests", [])
+    food_only_trip = interests and all(i.lower() in {"food", "dining", "eating"} for i in interests)
+
     changed = True
     while changed:
         changed = False
         current = start_min
+        seen_names: set[str] = set()
         for i, name in enumerate(order):
+            # Drop duplicate stops (same place appearing twice)
+            canonical = name.lower()
+            if any(canonical in s or s in canonical for s in seen_names):
+                logger.warning(f"validate_node: dropping '{name}' — duplicate stop")
+                order.pop(i)
+                selected = [s for s in selected if s["name"] != name]
+                changed = True
+                break
+            seen_names.add(canonical)
+
+            # Drop stops that were never validated by Google (no place_id = LLM hallucination)
+            cand = cand_lookup.get(name, {}) or stop_lookup.get(name, {})
+            if not cand.get("place_id") and not cand.get("lat"):
+                logger.warning(f"validate_node: dropping '{name}' — no place_id (not found on Google)")
+                order.pop(i)
+                selected = [s for s in selected if s["name"] != name]
+                changed = True
+                break
+
+            # For food-only trips, drop stops that have no food association at all
+            if food_only_trip and not _is_food_stop(name, cand) and cand.get("category") not in {"food", "restaurant", "cafe"}:
+                logger.warning(f"validate_node: dropping '{name}' — non-food stop in food-only trip")
+                order.pop(i)
+                selected = [s for s in selected if s["name"] != name]
+                changed = True
+                break
+
+            # Drop consecutive food stops — skip if either is a snack (snack → meal is fine)
+            if i > 0 and not food_only_trip:
+                prev_name = order[i - 1]
+                prev_cand = cand_lookup.get(prev_name, {}) or stop_lookup.get(prev_name, {})
+                if _is_food_stop(name, cand) and _is_food_stop(prev_name, prev_cand) and not _is_snack_stop(name) and not _is_snack_stop(prev_name):
+                    logger.warning(f"validate_node: dropping '{name}' — consecutive food stop after '{prev_name}'")
+                    order.pop(i)
+                    selected = [s for s in selected if s["name"] != name]
+                    changed = True
+                    break
+
             dur = stop_lookup.get(name, {}).get("visit_duration_min", 45)
             # Use scheduled arrival from schedule_node if available, else calculate sequentially
             scheduled = stop_lookup.get(name, {}).get("scheduled_arrival")
@@ -713,16 +673,16 @@ def validate_node(state: WorkflowState) -> dict:
                 stop_data = stop_lookup.get(name, {})
                 original_dur = stop_data.get("visit_duration_min", dur)
                 # Enforce minimum durations for major attractions
-                MIN_DURATIONS = {"penang hill": 180, "kek lok si": 120, "penang national park": 180, "the habitat": 90, "escape theme park": 240}
+                MIN_DURATIONS = {"penang hill": 180, "kek lok si": 120, "penang national park": 180, "the habitat": 90, "escape theme park": 240, "hawker": 45, "foodstall": 45, "food court": 45}
                 min_dur = 30
                 for key, md in MIN_DURATIONS.items():
                     if key in name.lower():
                         min_dur = md
                         break
                 new_dur = original_dur - overshoot
-                # If it's the last stop and would be shortened, just drop it
-                if i == len(order) - 1 and new_dur < original_dur:
-                    logger.info(f"validate_node: dropping last stop '{name}' — only {new_dur}min left, not worth it")
+                # If it's the last stop and would be shortened below minimum, drop it
+                if i == len(order) - 1 and new_dur < min_dur:
+                    logger.info(f"validate_node: dropping last stop '{name}' — only {new_dur}min left (min={min_dur})")
                     order = order[:i]
                     selected = [s for s in selected if s["name"] in order]
                     changed = True
@@ -777,6 +737,26 @@ def validate_node(state: WorkflowState) -> dict:
         segments = new_segments
     else:
         logger.info(f"validate_node: all {len(order)} stops passed ✓")
+
+    # Record dropped stops and update plan_note (only mention user-requested items)
+    if len(order) != original_count:
+        dropped_names = [n for n in original_order_snapshot if n not in order]
+        if dropped_names:
+            # Only surface pinned places (user explicitly named) in the note
+            pinned_names = [p["name"] for p in state.get("pinned_candidates", [])]
+            user_requested_dropped = [n for n in dropped_names if any(
+                p.lower() in n.lower() or n.lower() in p.lower() for p in pinned_names
+            )]
+
+            if user_requested_dropped:
+                drop_note = f"Some places you requested couldn't fit in {state['end_time']}: {', '.join(user_requested_dropped)}."
+            else:
+                drop_note = f"Some stops were removed to fit within your {state['end_time']} end time."
+
+            existing_note = state.get("plan_note") or ""
+            # First pass wins — don't overwrite with a second validate_node pass
+            new_note = existing_note if existing_note else drop_note
+            return {"optimized_order": order, "selected_stops": selected, "travel_segments": segments, "plan_note": new_note}
 
     return {"optimized_order": order, "selected_stops": selected, "travel_segments": segments}
 
@@ -867,11 +847,12 @@ Your job:
 4. Call "done" with the final stop list
 
 RULES:
-- Keep the same stops unless something is clearly wrong (e.g. lunch at 3pm)
+- Keep the same stops unless something is clearly wrong (e.g. lunch at 3pm, hawker centre at 3-4pm when it's not a meal time)
+- If a stop ends between 15:00–17:00 and the next stop is a hawker centre/restaurant, push the food stop to dinner time (18:00+) and fill the gap with a cultural/heritage stop instead
 - Reasons must NOT include specific times like "arriving at 09:00" or "at 12:30". Instead say "early morning", "around lunch time", "late afternoon", etc.
 - Do NOT add stops that would push past {end_time}
 - The itinerary MUST end by {end_time} (±30 min max). If it already exceeds, DROP the last stop.
-- If there's no proper meal (any hot/cooked dish like nasi kandar, curry mee, laksa, char koay teow, rice, noodles, etc. — desserts like chendul, ice cream, coffee do NOT count) during lunch (11:30-13:30), use find_nearby_food to add one and drop a non-food stop to make room
+- If there's no proper meal (any hot/cooked dish like nasi kandar, curry mee, laksa, char koay teow, rice, noodles, etc. — desserts/snacks like chendul, cendol, ice kacang, popiah, kuih, coffee do NOT count as a meal) during lunch (11:30-13:30), use find_nearby_food to add one and drop a non-food stop to make room
 - Do NOT add two heavy meals back-to-back. If a meal already exists in the lunch window, don't add another.
 - Lunch window: 11:30-13:30. Dinner window: 17:30-20:00
 - You have max 5 tool calls before you must call "done"
@@ -889,20 +870,23 @@ CRITICAL: You MUST respond with ONLY a single JSON object. No text before or aft
 
 {tool_descriptions}"""
 
+    gap_hint = state.get("_gap_hint", "")
+
     user_msg = f"""Here's the current plan with real travel times:
 
 {schedule_text}
 
 Trip: {start_time} – {end_time} ({travel_mode})
 Unused time at end: {unused}min
+{gap_hint}
 
 Review this plan and:
-1. If unused time > 90min, you MUST add more stops to fill the day. Use find_nearby_food or check_place to find additions. A {end_min - _time_to_min(start_time)}-minute trip should have 4-6 stops.
-2. If no proper sit-down meal during lunch window, add one.
+1. If unused time > 30min, you MUST add more stops to fill the day. Prefer stops that match user interests ({', '.join(interests)}). Only use find_nearby_food if a proper meal is missing — otherwise use check_place to find attractions, temples, heritage sites, or activities that fit the interests. A {end_min - _time_to_min(start_time)}-minute trip should have 4-6 stops.
+2. If no proper sit-down meal during lunch window, add one using find_nearby_food.
 3. Write great reasons for each stop using the real arrival times.
 Call tools first if you need to add stops, then call "done" with the complete list."""
 
-    llm = _create_llm()
+    llm = _create_reasoning_llm()
     messages = [SystemMessage(content=system), HumanMessage(content=user_msg)]
 
     max_iterations = 6
@@ -917,15 +901,28 @@ Call tools first if you need to add stops, then call "done" with the complete li
                 if raw.startswith("json"):
                     raw = raw[4:]
                 raw = raw.strip()
-            # Handle text before JSON
-            if not raw.startswith("{"):
-                idx = raw.find("{")
-                if idx >= 0:
-                    raw = raw[idx:]
-
-            action = json.loads(raw)
+            # Extract the last valid JSON object by scanning from each '{' backwards
+            import re as _re
+            raw_stripped = raw.strip()
+            parsed_action = None
+            # Find all positions of '{' and try parsing from the last one backwards
+            brace_positions = [m.start() for m in _re.finditer(r'\{', raw_stripped)]
+            for pos in reversed(brace_positions):
+                try:
+                    parsed_action = json.loads(raw_stripped[pos:])
+                    break
+                except json.JSONDecodeError:
+                    continue
+            if parsed_action is None:
+                raise json.JSONDecodeError("No valid JSON object found", raw_stripped, 0)
+            action = parsed_action
             tool = action.get("tool", "")
             args = action.get("args", {})
+
+            # Handle LLM returning {"stops": [...]} directly without tool wrapper
+            if not tool and "stops" in action:
+                tool = "done"
+                args = {"stops": action["stops"]}
 
             if tool == "done":
                 # Apply updated stops
@@ -983,6 +980,9 @@ Call tools first if you need to add stops, then call "done" with the complete li
                         "penang national park": 180,
                         "the habitat penang hill": 90,
                         "escape theme park": 240,
+                        "hawker": 45,
+                        "foodstall": 45,
+                        "food court": 45,
                     }
 
                     for s in selected:
@@ -1000,6 +1000,26 @@ Call tools first if you need to add stops, then call "done" with the complete li
                     logger.info(f"refine_node: done — {len(new_order)} stops with updated reasons")
                     for s in final_stops:
                         logger.info(f"  → {s['name']}: {s.get('reason', '')[:80]}")
+
+                    # Validate total time in Python before accepting
+                    stop_dur_map = {s["name"]: s.get("visit_duration_min", 45) for s in selected}
+                    calc_time = _time_to_min(start_time)
+                    for idx, name in enumerate(new_order):
+                        calc_time += stop_dur_map.get(name, 45)
+                        if idx < len(new_order) - 1:
+                            seg_key = f"{name}->{new_order[idx+1]}"
+                            calc_time += segments.get(seg_key, {}).get("duration_min", 15)
+                    overshoot = calc_time - end_min
+                    if overshoot > 30 and iteration < max_iterations - 1:
+                        logger.warning(f"refine_node: plan ends at {_min_to_time(calc_time)}, {overshoot}min over — asking agent to fix")
+                        messages.append(resp)
+                        messages.append(HumanMessage(content=(
+                            f"VALIDATION FAILED: Your plan ends at {_min_to_time(calc_time)}, "
+                            f"which is {overshoot} minutes past the {end_time} limit. "
+                            f"Remove or shorten the last stop(s) so the itinerary ends by {end_time}, then call done again."
+                        )))
+                        continue
+
                     return {"optimized_order": new_order, "selected_stops": selected, "candidates": candidates}
                 break
 
@@ -1055,6 +1075,25 @@ Call tools first if you need to add stops, then call "done" with the complete li
                 messages.append(HumanMessage(content=f"Tool result: {result_text}"))
 
             else:
+                # If tool is empty/missing but args has stops, treat as implicit done
+                if not tool and args.get("stops"):
+                    logger.info("refine_node: implicit done (empty tool with stops)")
+                    action = {"tool": "done", "args": args}
+                    tool = "done"
+                    # Re-enter done handling by continuing loop — set parsed_action and re-process
+                    messages.append(resp)
+                    # Process as done inline
+                    final_stops = args.get("stops", [])
+                    if final_stops:
+                        reason_map = {s["name"]: s.get("reason", "") for s in final_stops}
+                        dur_map = {s["name"]: s.get("visit_duration_min") for s in final_stops}
+                        for s in selected:
+                            if s["name"] in reason_map:
+                                s["reason"] = reason_map[s["name"]]
+                            if s["name"] in dur_map and dur_map[s["name"]]:
+                                s["visit_duration_min"] = dur_map[s["name"]]
+                    logger.info(f"refine_node: done (implicit) — {len(selected)} stops")
+                    return {"optimized_order": order, "selected_stops": selected}
                 logger.warning(f"refine_node: unknown tool '{tool}', forcing done")
                 break
 
@@ -1116,14 +1155,6 @@ def format_node(state: WorkflowState) -> dict:
         short = reason[:60] if reason else f"Visit {name}"
         
         # Full description: try RAG → cached Google editorial → LLM generation
-        from .tools import _enrich_with_local_content
-        enrichment = _enrich_with_local_content(name)
-        if enrichment.get("editorial"):
-            editorial = enrichment["editorial"]
-            if len(editorial) >= 100:
-                return short, editorial
-        
-        # Try cached Google editorialSummary from search_node
         editorial = cand_info.get("editorial", "")
         if editorial and len(editorial) >= 100:
             return short, editorial
@@ -1244,6 +1275,38 @@ def format_node(state: WorkflowState) -> dict:
     # Summary
     sh, sm = divmod(total_min, 60)
     summary = f"{len(stops_out)}-stop {travel_mode} itinerary · {sh}h {sm}m"
+    plan_note = state.get("plan_note", "")
+    # Only keep plan_note if the mentioned places are actually missing from final itinerary
+    if plan_note:
+        final_names = [s.name.lower() for s in stops_out]
+        pinned_names = [p["name"].lower() for p in state.get("pinned_candidates", [])]
+        # Recompute which pinned places are actually missing from final itinerary
+        actually_missing = [
+            p["name"] for p in state.get("pinned_candidates", [])
+            if not any(p["name"].lower().split()[0] in n or n in p["name"].lower() for n in final_names)
+        ]
+        if actually_missing:
+            summary = f"{summary} · Some places you requested couldn't fit in {end_time}: {', '.join(actually_missing)}."
+
+    # Also note if cuisine hints weren't covered
+    cuisine_hints = state.get("cuisine_hints", [])
+    if cuisine_hints:
+        final_text = " ".join(s.name.lower() for s in stops_out)
+        food_kw = {"hawker", "restaurant", "cafe", "food", "kandar", "laksa", "mee", "chendul", "cendol", "kopitiam", "foodstall", "market"}
+        has_any_food = any(w in final_text for w in food_kw)
+        if not has_any_food:
+            summary = f"{summary} · No time for food stops — your {end_time} end time only fits the attractions. Ask me to extend your trip!"
+
+    # Inform user if itinerary ends early or late
+    if stops_out:
+        last_dep_min = _time_to_min(stops_out[-1].departure_time or end_time)
+        end_min_fmt = _time_to_min(end_time)
+        unused_min = end_min_fmt - last_dep_min
+        overshoot_min = last_dep_min - end_min_fmt
+        if unused_min > 30:
+            summary = f"{summary} · Ends at {stops_out[-1].departure_time}, {unused_min} min before your {end_time} — ask me to add more stops!"
+        elif overshoot_min > 30:
+            summary = f"{summary} · Ends at {stops_out[-1].departure_time}, {overshoot_min} min past your {end_time} — ask me to shorten it!"
 
     result = ItineraryData(
         stops=stops_out,
@@ -1293,11 +1356,17 @@ def run_itinerary_workflow(
     start_location: str = "George Town, Penang",
     travel_mode: str = "walking",
     start_date: Optional[str] = None,
+    status_callback=None,
 ) -> ItineraryData:
     """
     Run the full itinerary generation workflow synchronously.
     Returns ItineraryData or raises on failure.
+    status_callback: optional callable(message: str) for real-time progress updates.
     """
+    def _status(msg: str):
+        if status_callback:
+            status_callback(msg)
+
     import time as _time
     t0 = _time.time()
     state: WorkflowState = {
@@ -1317,29 +1386,33 @@ def run_itinerary_workflow(
         "result": None,
         "error": None,
         "recommendations": None,
+        "plan_note": None,
     }
 
     logger.info(f"workflow: starting — {len(state['interests'])} interests, {travel_mode}, {start_time}-{end_time}, location={start_location}")
 
+    _status("🔍 Understanding your request...")
     logger.info("workflow: [1/7] parse_description_node")
     state.update(parse_description_node(state))
 
+    _status("📚 Finding local recommendations...")
     logger.info("workflow: [2/7] fetch_recommendations (RAG)")
     state.update(fetch_recommendations(state))
 
+    _status("🧠 Planning your itinerary...")
     logger.info("workflow: [3/7] plan_node (LLM)")
     state.update(plan_node(state))
     if state.get("error") or not state["selected_stops"]:
         raise RuntimeError(state.get("error") or "No stops planned")
 
+    _status("📍 Validating places on Google Maps...")
     logger.info("workflow: [4/7] enrich_node (Google API)")
     state.update(enrich_node(state))
     if not state.get("candidates"):
         raise RuntimeError("No valid places found after Google validation")
 
-    logger.info("workflow: [5/7] schedule_node — skipped (plan_node handles ordering)")
-
-    logger.info("workflow: [6/7] travel_time_node (Google API)")
+    _status("🚗 Calculating travel times...")
+    logger.info("workflow: [5/7] travel_time_node (Google API)")
     state.update(travel_time_node(state))
 
     logger.info("workflow: [6.5/7] validate_node")
@@ -1348,39 +1421,42 @@ def run_itinerary_workflow(
     if not state.get("optimized_order"):
         raise RuntimeError("No stops remaining after validation")
 
+    _status("✨ Refining your itinerary...")
     logger.info("workflow: [7/9] refine_node (ReAct agent)")
     refine_result = refine_node(state)
     if refine_result:
         state.update(refine_result)
-        # Recalculate travel times if refine_node changed stops
         logger.info("workflow: [7.5/9] travel_time_node (recalc after refine)")
         state.update(travel_time_node(state))
+        logger.info("workflow: [7.6/9] validate_node (re-enforce end time after refine)")
+        state.update(validate_node(state))
 
+    _status("📋 Building your itinerary...")
     logger.info("workflow: [8/9] format_node")
     state.update(format_node(state))
 
     if state.get("error") or not state["result"]:
         raise RuntimeError(state.get("error") or "Failed to format itinerary")
 
-    # Post-check: fill gaps if needed
-    logger.info("workflow: [9/9] post-check (meals, time budget)")
-    result = state["result"]
-    issues = _check_itinerary(result, start_time, end_time)
-    if issues:
-        logger.info(f"workflow: post-check issues: {issues}")
-        _fill_itinerary_gaps(state, issues)
-        # Rebuild after filling
-        if state.get("optimized_order"):
-            state.update(travel_time_node(state))
-            state.update(format_node(state))
-        result = state["result"]
-        remaining_issues = _check_itinerary(result, start_time, end_time)
-        if remaining_issues:
-            logger.warning(f"workflow: accepting with remaining issues: {remaining_issues}")
-        else:
-            logger.info("workflow: post-check passed ✓")
+    logger.info("workflow: [9/9] post-check (time budget)")
+    issues = _check_itinerary(state["result"], start_time, end_time)
+    if not issues:
+        logger.info("workflow: post-check passed ✓")
     else:
-        logger.info("workflow: post-check passed ✓ (no issues)")
+        unused = _time_to_min(end_time) - _time_to_min(state["result"].stops[-1].departure_time or end_time)
+        if unused >= 60:
+            logger.info(f"workflow: post-check — {unused}min gap, re-running refine_node to fill")
+            # Inject gap info into state so refine_node knows to fill it
+            state["_gap_hint"] = f"There are {unused} minutes unused before {end_time}. You MUST add more stops to fill this time. Use find_nearby_food or check_place."
+            refine_result = refine_node(state)
+            if refine_result:
+                state.update(refine_result)
+                state.pop("_gap_hint", None)
+                state.update(travel_time_node(state))
+                state.update(validate_node(state))
+                state.update(format_node(state))
+        else:
+            logger.info(f"workflow: accepting {unused}min gap — too small to fill")
 
     elapsed = _time.time() - t0
     logger.info(f"workflow: completed in {elapsed:.1f}s — {len(state['result'].stops)} stops")
@@ -1388,155 +1464,21 @@ def run_itinerary_workflow(
 
 
 
-def _review_itinerary(state: WorkflowState) -> bool:
-    """LLM reviews the itinerary like a human guide. Returns True if changes were made."""
-    result = state["result"]
-    if not result or not result.stops:
-        return False
-
-    stops_text = "\n".join(
-        f"{s.order}. {s.name} [{s.arrival_time}-{s.departure_time}] {s.visit_duration_min}min"
-        for s in result.stops
-    )
-
-    llm = _create_reasoning_llm()
-    prompt = f"""Review this Penang itinerary as an experienced local guide:
-
-{stops_text}
-
-Trip: {state['start_time']} – {state['end_time']}, {state['travel_mode']}
-
-Check for these issues:
-1. Is there a proper SIT-DOWN MEAL (not dessert/snack) during lunch (12:00-13:30)?
-   - Chendul, ice cream, coffee are NOT meals. Nasi kandar, rice, noodles ARE meals.
-   - If Penang Hill spans 11:00-14:00+, assume lunch is eaten on the hill (David Brown's) — no separate lunch needed.
-2. Is there a proper dinner if trip goes past 18:30?
-3. Are food stops at sensible meal times (not 3pm for dinner)?
-4. Any stops that seem redundant or too similar?
-
-RULES for fixes:
-- Add at most ONE meal stop per missing meal
-- If a dessert/snack stop exists and you add a meal, REMOVE the dessert stop to save time
-- The total itinerary must still fit within {state['start_time']} – {state['end_time']} (±30 min)
-- Do NOT add stops that would push the itinerary past the end time
-- Prefer swapping a weak stop for a better one over adding extra stops
-
-If ALL is good, return: {{"ok": true}}
-If issues found, return MINIMAL fixes:
-{{
-  "ok": false,
-  "issues": ["chendul is dessert not lunch"],
-  "add": [{{"name": "Tek Sen Restaurant", "after_stop": 2, "duration_min": 60, "category": "food"}}],
-  "remove": ["Penang Road Famous Teochew Chendul"]
-}}
-Return ONLY valid JSON."""
-
-    try:
-        resp = llm.invoke([SystemMessage(content="Return only valid JSON."), HumanMessage(content=prompt)])
-        raw = resp.content.strip().strip("```json").strip("```").strip()
-        review = json.loads(raw)
-
-        if review.get("ok"):
-            logger.info("review_node: itinerary passed ✓")
-            return False
-
-        logger.info(f"review_node: issues found: {review.get('issues', [])}")
-
-        api_key = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
-        order = list(state["optimized_order"])
-        selected = list(state["selected_stops"])
-        candidates = list(state["candidates"])
-        changed = False
-
-        # Remove stops
-        for name in review.get("remove", []):
-            if name in order:
-                order.remove(name)
-                selected = [s for s in selected if s["name"] != name]
-                logger.info(f"review_node: removed '{name}'")
-                changed = True
-
-        # Add stops
-        for add in review.get("add", []):
-            pid = _find_place_id(add["name"], api_key) if api_key else None
-            if not pid:
-                continue
-            det = _get_place_details_by_id(pid, api_key)
-            if not det.get("name"):
-                continue
-            geo = det.get("geometry", {}).get("location", {})
-            wt = det.get("opening_hours", {}).get("weekday_text", [])
-            new_stop = {
-                "name": det["name"], "place_id": pid,
-                "category": add.get("category", "food"),
-                "visit_duration_min": add.get("duration_min", 60),
-                "rating": det.get("rating"),
-                "address": det.get("vicinity", ""),
-                "lat": geo.get("lat"), "lng": geo.get("lng"),
-                "photo_reference": det.get("photo_reference"),
-                "hours": " | ".join(wt) if wt else "",
-                "editorial": det.get("editorial_summary", {}).get("overview", ""),
-                "google_maps_url": f"https://www.google.com/maps/search/?api=1&query={det['name'].replace(' ', '+')}&query_place_id={pid}",
-            }
-            insert_idx = add.get("after_stop", len(order))
-            order.insert(insert_idx, new_stop["name"])
-            selected.insert(insert_idx, new_stop)
-            candidates.append(new_stop)
-            logger.info(f"review_node: added '{det['name']}' after stop {insert_idx}")
-            changed = True
-
-        if changed:
-            state["optimized_order"] = order
-            state["selected_stops"] = selected
-            state["candidates"] = candidates
-
-        return changed
-
-    except Exception as e:
-        logger.warning(f"review_node: failed ({e}), skipping")
-        return False
 
 def _check_itinerary(result: ItineraryData, start_time: str, end_time: str) -> list[str]:
-    """Check itinerary for time budget, meal gaps, and other issues."""
+    """Check itinerary for time budget only. Meal checks are handled by refine_node (LLM)."""
     issues = []
     end_min = _time_to_min(end_time)
-    start_min = _time_to_min(start_time)
 
     if not result.stops:
         return ["No stops"]
 
     last_dep = _time_to_min(result.stops[-1].departure_time or end_time)
     unused = end_min - last_dep
-    if unused > 90:
+    if unused > 30:
         issues.append(f"ends_{unused}min_early")
     if last_dep > end_min + 30:
         issues.append(f"exceeds_{last_dep - end_min}min")
-
-    # Check lunch
-    if start_min <= 720 and end_min >= 810:
-        food_words = ["restaurant", "hawker", "cafe", "food", "nasi", "mee", "laksa", "coffee", "kandar", "curry", "chendul", "cendol"]
-        has_lunch = False
-        for s in result.stops:
-            arr = _time_to_min(s.arrival_time or "00:00")
-            dep = _time_to_min(s.departure_time or "00:00")
-            is_food = s.category == "food" or any(w in s.name.lower() for w in food_words)
-            covers_lunch = arr <= 810 and dep >= 720  # stop spans lunch window
-            long_stop_at_lunch = (dep - arr) >= 120 and covers_lunch  # 2h+ stop during lunch = eating included
-            if (is_food and 690 <= arr <= 840) or long_stop_at_lunch:
-                has_lunch = True
-                break
-        if not has_lunch:
-            issues.append("no_lunch")
-
-    # Check dinner
-    if end_min >= 1140:
-        food_words = ["restaurant", "hawker", "cafe", "food", "nasi", "mee", "laksa", "kandar", "curry"]
-        has_dinner = any(
-            (s.category == "food" or any(w in s.name.lower() for w in food_words)) and 1050 <= _time_to_min(s.arrival_time or "00:00") <= 1260
-            for s in result.stops
-        )
-        if not has_dinner:
-            issues.append("no_dinner")
 
     return issues
 
@@ -1550,30 +1492,54 @@ def _fill_itinerary_gaps(state: WorkflowState, issues: list[str]):
     existing_names = [s.name for s in result.stops]
     last_stop = result.stops[-1].name if result.stops else "George Town"
 
-    needs_dinner = "no_dinner" in issues
-    needs_more = remaining > 90
+    needs_more = remaining > 30
 
-    if not needs_dinner and not needs_more:
+    if not needs_more:
         return
+
+    # If remaining time is very short, nothing will fit — give up early
+    if remaining < 30:
+        return
+
+    # Determine if we're filling evening/late-night time
+    last_dep_time = result.stops[-1].departure_time or state["end_time"]
+    last_dep_hour = _time_to_min(last_dep_time) // 60
+    is_late_evening = last_dep_hour >= 20  # after 8pm
 
     # Ask LLM for specific fill stops
     llm = _create_llm()
     fill_request = []
-    if needs_dinner:
-        fill_request.append("a dinner restaurant/hawker centre (to arrive around 18:30-19:30)")
-    if needs_more and remaining > 120:
-        fill_request.append(f"1-2 more attractions to fill {remaining}min of free time")
-    elif needs_more:
-        fill_request.append(f"1 more attraction to fill {remaining}min of free time")
+    if needs_more and remaining > 60:
+        if is_late_evening:
+            fill_request.append(f"1-2 late-night options open after 8pm to fill {remaining}min (e.g. bars, cafes, supper spots, night markets, rooftop bars, live music venues)")
+        else:
+            food_only = state.get("interests") and all(i.lower() in {"food", "dining", "eating"} for i in state.get("interests", []))
+            if food_only:
+                fill_request.append(f"1-2 more food stalls or hawker stops to fill {remaining}min (must be food/drink only)")
+            else:
+                fill_request.append(f"1-2 more attractions to fill {remaining}min of free time")
+    else:
+        if is_late_evening:
+            fill_request.append(f"1 late-night spot open after 8pm to fill {remaining}min (e.g. bar, cafe, supper spot, night market)")
+        else:
+            food_only = state.get("interests") and all(i.lower() in {"food", "dining", "eating"} for i in state.get("interests", []))
+            if food_only:
+                fill_request.append(f"1 more food stall or hawker stop to fill {remaining}min (must be food/drink only)")
+            else:
+                fill_request.append(f"1 short attraction to fill {remaining}min of free time")
 
     prompt = f"""I need to add stops to a Penang itinerary near {last_stop}.
 Already visited: {', '.join(existing_names)}
 Travel mode: {state['travel_mode']}
+User interests: {', '.join(state.get('interests', []))}
+{f"User wants these foods: {', '.join(state.get('cuisine_hints', []))}" if state.get('cuisine_hints') else ""}
 {"WALKING MODE — only suggest places within 2km walking distance of " + last_stop + "." if state['travel_mode'] == 'walking' else ""}
+IMPORTANT: Only suggest places with visit_duration_min ≤ {remaining - 15} minutes. There are only {remaining} minutes left before the trip ends.
+{"IMPORTANT: User interests are " + ', '.join(state.get('interests', [])) + " — prefer attractions, temples, heritage, or cultural sites over food stops unless food is explicitly needed." if state.get('interests') and not all(i.lower() in {"food","dining","eating"} for i in state.get('interests',[])) else ""}
 Need: {' AND '.join(fill_request)}
 
-Return ONLY JSON array of new stops:
-[{{"name": "Real Place Name", "alternatives": ["Alt1"], "visit_duration_min": 60, "category": "food"}}]"""
+Return ONLY JSON array. For each stop provide at least 3 alternatives in case the primary is unavailable:
+[{{"name": "Real Place Name", "alternatives": ["Alt1", "Alt2", "Alt3"], "visit_duration_min": 60, "category": "food"}}]"""
 
     try:
         resp = llm.invoke([SystemMessage(content="Return only valid JSON."), HumanMessage(content=prompt)])
@@ -1585,9 +1551,17 @@ Return ONLY JSON array of new stops:
         order = list(state["optimized_order"])
         selected = list(state["selected_stops"])
         candidates = list(state["candidates"])
+        rejected: set[str] = set()
+        food_only_trip = state.get("interests") and all(i.lower() in {"food", "dining", "eating"} for i in state.get("interests", []))
+        fill_food_kw = {"hawker", "restaurant", "cafe", "food", "kandar", "laksa", "mee", "chendul", "cendol", "kopitiam", "foodstall", "rojak", "kuey", "koay", "char", "nasi", "porridge", "dim sum", "bak kut", "curry"}
 
         for fs in new_stops:
+            # For food-only trips, skip non-food suggestions entirely
+            if food_only_trip and fs.get("category", "") not in {"food", "restaurant", "cafe"} and not any(w in fs["name"].lower() for w in fill_food_kw):
+                continue
             for cand_name in [fs["name"]] + fs.get("alternatives", []):
+                if cand_name in rejected:
+                    continue
                 pid = _find_place_id(cand_name, api_key)
                 if not pid:
                     continue
@@ -1615,6 +1589,7 @@ Return ONLY JSON array of new stops:
                     is_open, _ = _is_open_at(hours_str, est_arrival)
                     if not is_open:
                         logger.info(f"_fill_gaps: skipping '{det['name']}' — closed at {est_arrival}")
+                        rejected.add(det['name'])
                         continue
                 # Check distance from last stop
                 if order:
@@ -1632,14 +1607,34 @@ Return ONLY JSON array of new stops:
                 est_end = last_dep + 15 + fs.get("visit_duration_min", 60)
                 if est_end > end_min + 15:
                     logger.info(f"_fill_gaps: skipping '{det['name']}' — would end at {_min_to_time(est_end)}, past {state['end_time']}")
+                    rejected.add(det['name'])
                     continue
+                # Don't place two food stops consecutively (skip for food-only trips)
+                food_only = state.get("interests") and all(i.lower() in {"food", "dining", "eating"} for i in state.get("interests", []))
+                food_categories = {"food", "restaurant", "cafe"}
+                food_keywords = ["hawker", "restaurant", "cafe", "food", "kandar", "laksa", "koay", "mee", "chendul", "kopitiam"]
+                snack_keywords = ["chendul", "cendol", "ice kacang", "ais kacang", "durian", "dessert", "bakery", "cake", "popiah", "kuih"]
+                new_is_food = fs.get("category", "") in food_categories or any(w in det["name"].lower() for w in food_keywords)
+                new_is_snack = any(w in det["name"].lower() for w in snack_keywords)
+                last_is_snack = any(w in order[-1].lower() for w in snack_keywords) if order else False
+                if new_is_food and order and not food_only and not new_is_snack and not last_is_snack:
+                    last_stop_data = next((c for c in candidates if c["name"] == order[-1]), {})
+                    last_is_food = last_stop_data.get("category", "") in food_categories or any(w in order[-1].lower() for w in food_keywords)
+                    if last_is_food:
+                        logger.info(f"_fill_gaps: skipping '{det['name']}' — consecutive food stop after '{order[-1]}'")
+                        continue
                 # Enforce minimum durations for major attractions
-                MIN_DURATIONS = {"penang hill": 180, "kek lok si": 120, "penang national park": 180, "the habitat": 90, "escape theme park": 240}
+                MIN_DURATIONS = {"penang hill": 180, "kek lok si": 120, "penang national park": 180, "the habitat": 90, "escape theme park": 240, "hawker": 45, "foodstall": 45, "food court": 45}
                 visit_dur = fs.get("visit_duration_min", 60)
                 for key, min_dur in MIN_DURATIONS.items():
                     if key in det["name"].lower() and visit_dur < min_dur:
                         visit_dur = min_dur
                 enriched["visit_duration_min"] = visit_dur
+                # Skip if already in itinerary (fuzzy match)
+                canonical = det["name"].lower()
+                if any(canonical in n.lower() or n.lower() in canonical for n in order):
+                    logger.info(f"_fill_gaps: skipping '{det['name']}' — already in itinerary")
+                    continue
                 order.append(enriched["name"])
                 selected.append(enriched)
                 candidates.append(enriched)
@@ -1694,32 +1689,51 @@ def _is_open_at(hours_text: str, visit_time: str) -> tuple[bool, str]:
     if "24 hours" in today_hours or "24 Hours" in today_hours:
         return True, today_hours
 
-    # Parse time range e.g. "Monday: 9:00 AM – 9:00 PM"
+    # Parse time range e.g. "Monday: 9:00 AM – 9:00 PM" or "Monday: 4:00 – 11:00 PM"
     try:
         import re
-        times = re.findall(r'(\d{1,2}:\d{2}\s*[AP]M)', today_hours)
-        if len(times) >= 2:
-            def to_min(t):
-                t = t.strip().replace('\u202f', ' ').replace('\u2009', '')
+        # Match times with optional AM/PM
+        times_with_ampm = re.findall(r'(\d{1,2}:\d{2}[\s\u202f\u2009]*[AP]M)', today_hours)
+        times_bare = re.findall(r'(\d{1,2}:\d{2})(?![\s\u202f\u2009]*[AP]M)', today_hours)
+
+        def to_min(t, default_ampm=None):
+            t = t.strip().replace('\u202f', ' ').replace('\u2009', '')
+            if re.search(r'[AP]M', t, re.I):
                 h, rest = t.split(':')
                 m_part, ampm = rest[:2], rest[2:].strip()
-                h, m = int(h), int(m_part)
-                if ampm.upper() == 'PM' and h != 12:
-                    h += 12
-                if ampm.upper() == 'AM' and h == 12:
-                    h = 0
-                return h * 60 + m
+            else:
+                h, m_part = t.split(':')
+                ampm = default_ampm or 'AM'
+            h, m = int(h), int(m_part)
+            if ampm.upper() == 'PM' and h != 12:
+                h += 12
+            if ampm.upper() == 'AM' and h == 12:
+                h = 0
+            return h * 60 + m
 
-            open_min = to_min(times[0])
-            close_min = to_min(times[1])
-            visit_min = _time_to_min(visit_time)
+        if len(times_with_ampm) >= 2:
+            open_min = to_min(times_with_ampm[0])
+            close_min = to_min(times_with_ampm[1])
+        elif len(times_with_ampm) == 1 and times_bare:
+            # e.g. "4:00 – 11:00 PM" — bare open time, PM close time
+            close_min = to_min(times_with_ampm[0])
+            close_ampm = 'PM' if 'PM' in times_with_ampm[0].upper() else 'AM'
+            # Infer open AM/PM: if bare hour < close hour in 12h, same period; else prior period
+            bare_h = int(times_bare[0].split(':')[0])
+            close_h = close_min // 60
+            # If close is PM and bare hour could be PM (bare_h <= 12 and makes sense before close)
+            if close_ampm == 'PM' and bare_h <= (close_h - 12 if close_h > 12 else close_h):
+                open_min = to_min(times_bare[0], 'PM')
+            else:
+                open_min = to_min(times_bare[0], 'AM')
+        else:
+            return True, today_hours
 
-            # Handle midnight-crossing hours (e.g. 10:00 AM – 2:00 AM next day)
-            if close_min <= open_min:
-                close_min += 24 * 60
-            
-            if visit_min < open_min or visit_min >= close_min:
-                return False, today_hours
+        visit_min = _time_to_min(visit_time)
+        if close_min <= open_min:
+            close_min += 24 * 60
+        if visit_min < open_min or visit_min >= close_min:
+            return False, today_hours
     except Exception:
         pass
     
@@ -1788,9 +1802,10 @@ Examples:
 - "remove stop 3" → {{"operation":"remove","remove_index":3,"target_position":null,"insert_after":null,"new_place_query":null,"new_duration_min":null,"move_from":null,"move_to":null}}
 - "make stop 2 shorter, 30 min" → {{"operation":"change_duration","target_position":2,"new_duration_min":30,"insert_after":null,"new_place_query":null,"remove_index":null,"move_from":null,"move_to":null}}
 - "replace stop 3 with a temple" → {{"operation":"swap","target_position":3,"new_place_query":"temple George Town Penang","insert_after":null,"new_duration_min":null,"remove_index":null,"move_from":null,"move_to":null}}
+- "change last stop to Kek Lok Si" → {{"operation":"swap","target_position":7,"new_place_query":"Kek Lok Si Penang","insert_after":null,"new_duration_min":null,"remove_index":null,"move_from":null,"move_to":null}}
 - "move stop 3 to position 5" → {{"operation":"rearrange","move_from":3,"move_to":5,"target_position":null,"insert_after":null,"new_place_query":null,"new_duration_min":null,"remove_index":null}}
 
-IMPORTANT: "add X" without a position always means INSERT as a new stop (operation=add, insert_after="last"). NEVER use swap unless user says "replace" or "swap".
+IMPORTANT: "add X" without a position always means INSERT as a new stop (operation=add, insert_after="last"). Use "swap" when user says "replace", "swap", or "change X to Y".
 """
 
     response = llm.invoke([SystemMessage(content="You are a JSON parser. Return only valid JSON."), HumanMessage(content=parse_prompt)])
@@ -1861,13 +1876,26 @@ Return ONLY JSON: {{"name": "Real Place Name", "alternatives": ["Alt1", "Alt2"],
             weekday_text = details.get("opening_hours", {}).get("weekday_text", [])
             hours_str = " | ".join(weekday_text) if weekday_text else ""
 
-            # Check opening hours at planned arrival
+            # Check opening hours at planned arrival — use insert position
             insert_after = op.get("insert_after")
-            if insert_after == "last" or insert_after is None:
+            move_to = op.get("move_to")
+            # Determine insert index
+            if insert_after == "last" or (insert_after is None and move_to is None):
+                insert_idx = len(stops_list)  # append
+            elif move_to is not None:
+                insert_idx = int(move_to) - 1  # before this position (0-based)
+            elif insert_after is not None:
+                insert_idx = int(insert_after)  # after this stop
+            else:
+                insert_idx = len(stops_list)
+
+            # Calculate planned arrival at insert position
+            if insert_idx == 0:
+                planned_arrival = start_time
+            elif insert_idx >= len(stops_list):
                 planned_arrival = _min_to_time(_time_to_min(stops_list[-1].get("departure_time", end_time)))
             else:
-                idx = min(int(insert_after), len(stops_list) - 1)
-                planned_arrival = _min_to_time(_time_to_min(stops_list[idx].get("departure_time", start_time)))
+                planned_arrival = _min_to_time(_time_to_min(stops_list[insert_idx - 1].get("departure_time", start_time)))
 
             if hours_str:
                 is_open, hours_today = _is_open_at(hours_str, planned_arrival)
@@ -1875,13 +1903,18 @@ Return ONLY JSON: {{"name": "Real Place Name", "alternatives": ["Alt1", "Alt2"],
                     logger.info(f"modify_itinerary: '{details['name']}' closed at {planned_arrival}, trying next alternative")
                     continue
 
+            # Reject duplicates
+            canonical = details["name"].lower()
+            if any(canonical in n.lower() or n.lower() in canonical for n in existing_names):
+                return {"response": f"'{details['name']}' is already in your itinerary. Did you mean to add it again?", "structured_itinerary": current_itinerary}
+
             photo_url = None
             if details.get("photo_reference") and api_key:
                 photo_url = f"https://places.googleapis.com/v1/{details['photo_reference']}/media?maxHeightPx=400&key={api_key}"
 
             # Enforce minimum durations for major attractions
             visit_dur = suggestion.get("visit_duration_min", 60)
-            MIN_DURATIONS = {"penang hill": 180, "kek lok si": 120, "penang national park": 180, "the habitat": 90, "escape theme park": 240}
+            MIN_DURATIONS = {"penang hill": 180, "kek lok si": 120, "penang national park": 180, "the habitat": 90, "escape theme park": 240, "hawker": 45, "foodstall": 45, "food court": 45}
             for key, min_dur in MIN_DURATIONS.items():
                 if key in details["name"].lower() and visit_dur < min_dur:
                     visit_dur = min_dur
@@ -1889,6 +1922,7 @@ Return ONLY JSON: {{"name": "Real Place Name", "alternatives": ["Alt1", "Alt2"],
             new_stop = {
                 "name": details["name"],
                 "visit_duration_min": visit_dur,
+                "category": suggestion.get("category", "attraction"),
                 "description": f"Visit {details['name']} in Penang.",
                 "short_description": f"Visit {details['name']}",
                 "lat": geo.get("lat"), "lng": geo.get("lng"),
@@ -1908,13 +1942,10 @@ Return ONLY JSON: {{"name": "Real Place Name", "alternatives": ["Alt1", "Alt2"],
                 if 0 <= idx < len(stops_list):
                     stops_list[idx] = new_stop
             else:
-                insert_after = op.get("insert_after")
-                if insert_after == "last":
+                if insert_idx >= len(stops_list):
                     stops_list.append(new_stop)
-                elif insert_after is not None:
-                    stops_list.insert(int(insert_after), new_stop)
                 else:
-                    stops_list.append(new_stop)
+                    stops_list.insert(insert_idx, new_stop)
         elif op["operation"] in ("add", "swap"):
             raise PlaceUnavailableError(
                 f"Could not find an open alternative for '{new_place_query or user_message}' at the planned time. "

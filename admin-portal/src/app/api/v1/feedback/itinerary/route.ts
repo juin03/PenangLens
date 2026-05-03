@@ -4,7 +4,7 @@ import { verifyToken } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { itineraryId, rating, comment } = body;
+  const { itineraryId, rating, comment, planVersion, threadId } = body;
 
   if (!itineraryId || !rating) {
     return NextResponse.json({ error: 'itineraryId and rating required' }, { status: 400 });
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
 
   try {
     await (prisma as any).itineraryFeedback.create({
-      data: { itineraryId, rating: Number(rating), comment, userId },
+      data: { itineraryId, rating: Number(rating), comment, planVersion, threadId, userId },
     });
     return NextResponse.json({ success: true });
   } catch (error) {
