@@ -5,11 +5,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const getBaseUrl = () => {
   if (__DEV__) {
-    const LAN_IP = '192.168.0.192'; //ipconfig | findstr "IPv4"
-    if (Platform.OS === 'web') return 'http://localhost';
-    return `http://${LAN_IP}`;
+    // const LAN_IP = '192.168.0.192'; //ipconfig | findstr "IPv4"
+    // if (Platform.OS === 'web') return 'http://localhost';
+    // return `http://${LAN_IP}`;
+    return 'https://admin-portal.agreeableglacier-265fa83a.southeastasia.azurecontainerapps.io';
   }
-  return 'https://your-production-url.com';
+  return 'https://admin-portal.agreeableglacier-265fa83a.southeastasia.azurecontainerapps.io';
 };
 
 const BASE = getBaseUrl();

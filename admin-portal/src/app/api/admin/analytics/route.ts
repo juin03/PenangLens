@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       prisma.user.count(),
       prisma.pointOfInterest.count(),
       prisma.pointOfInterest.count({ where: { status: 'published' } }),
-      prisma.pointOfInterest.count({ where: { content: { not: null } } }),
+      prisma.pointOfInterest.count({ where: { content: { not: undefined } } }),
       prisma.recognitionFeedback.count({ where: { status: 'pending' } }),
     ]);
 
@@ -43,7 +43,8 @@ export async function GET(request: NextRequest) {
     }
 
     // ── Top 5 Scanned Spots ──────────────────────────────────────────
-    const topSpotsRaw = await prisma.recognitionHistory.groupBy({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const topSpotsRaw = await (prisma.recognitionHistory as any).groupBy({
       by: ['poiId'],
       where: { createdAt: { gte: since }, poiId: { not: null } },
       _count: { poiId: true },

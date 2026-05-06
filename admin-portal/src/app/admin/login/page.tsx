@@ -26,7 +26,7 @@ export default function AdminLoginPage() {
       localStorage.setItem('admin_token', data.token);
       // Set cookie so the Next.js middleware can protect routes server-side
       document.cookie = `admin_token=${data.token}; path=/; SameSite=Lax`;
-      router.replace('/admin/spots');
+      window.location.href = '/admin/spots';
     } catch (err: any) {
       setError(err.message);
     } finally {

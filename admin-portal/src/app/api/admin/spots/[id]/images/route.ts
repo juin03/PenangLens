@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { BlobServiceClient } from '@azure/storage-blob';
+import { join } from 'path';
+import { unlink } from 'fs/promises';
 
 const VISION_ML_URL = process.env.VISION_ML_URL || 'http://127.0.0.1:8001';
 const AZURE_ENDPOINT = process.env.AZURE_SEARCH_ENDPOINT || '';

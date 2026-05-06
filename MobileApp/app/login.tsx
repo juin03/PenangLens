@@ -112,20 +112,6 @@ export default function LoginScreen() {
           >
             <Text style={styles.loginBtnText}>{loading ? 'Logging in...' : 'Login'}</Text>
           </TouchableOpacity>
-
-          {/* Divider */}
-          <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>or</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          {/* Google */}
-          <TouchableOpacity style={styles.googleBtn} onPress={handleLogin}>
-            <Text style={styles.googleG}>G</Text>
-            <Text style={styles.googleText}>Sign in with Google</Text>
-          </TouchableOpacity>
-
           {/* Signup */}
           <View style={styles.signupRow}>
             <Text style={styles.signupText}>Don't have account to discuss? </Text>
@@ -133,12 +119,6 @@ export default function LoginScreen() {
               <Text style={styles.signupLink}>Create Account</Text>
             </TouchableOpacity>
           </View>
-
-          {__DEV__ && (
-            <TouchableOpacity style={styles.devBtn} onPress={handleDevSkip}>
-              <Text style={styles.devText}>⚡ Dev: Skip to App</Text>
-            </TouchableOpacity>
-          )}
 
           <Text style={[styles.footer, { marginBottom: Spacing.lg + insets.bottom }]}>PENANG<Text style={styles.brandAccent}>LENS</Text></Text>
         </View>
