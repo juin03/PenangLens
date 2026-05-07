@@ -1,0 +1,17 @@
+name: Deploy VisionML
+
+on:
+  push:
+    branches: [main]
+    paths: [VisionML/**]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - run: az acr build --registry penanglenscr --image visionml:${{ github.sha }} ./VisionML
+      - run: az containerapp update --name visionml --resource-group rg-penanglens --image penanglenscr.azurecr.io/visionml:${{ github.sha }}

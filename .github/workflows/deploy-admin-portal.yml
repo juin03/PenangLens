@@ -1,0 +1,17 @@
+name: Deploy Admin Portal
+
+on:
+  push:
+    branches: [main]
+    paths: [admin-portal/**]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - run: az acr build --registry penanglenscr --image admin-portal:${{ github.sha }} ./admin-portal
+      - run: az containerapp update --name admin-portal --resource-group rg-penanglens --image penanglenscr.azurecr.io/admin-portal:${{ github.sha }}
