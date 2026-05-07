@@ -10,7 +10,7 @@ VisionML/models/results/
 VisionML/models/full_finetuning/
 VisionML/models/partial_finetuning/
 VisionML/uploads/
-*.pt
+# *.pt
 
 # Agent Specific
 Agent/node_modules/
@@ -19,4 +19,5 @@ Agent/dist/
 
 agent.json
 visionsleep.json
-*.webp
+*.webpazure-credentials.json
+# !VisionML/models/best.pt

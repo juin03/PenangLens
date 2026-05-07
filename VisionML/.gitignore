@@ -12,11 +12,11 @@ __pycache__/
 *$py.class
 .venv/
 .env
-*.pt
 uploads/
 results/
-*.pt
 *.jpg
 
 # Virtual environments
 .venv
+*.pt
+!models/best.pt
