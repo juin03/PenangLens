@@ -4,6 +4,8 @@ COPY package*.json ./
 RUN npm ci
 COPY . .
 RUN npx prisma generate
+ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
 RUN npm run build
 
 FROM node:20-alpine
