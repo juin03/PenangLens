@@ -3,7 +3,9 @@ name: Deploy Admin Portal
 on:
   push:
     branches: [main]
-    paths: [admin-portal/**]
+    paths:
+      - admin-portal/**
+      - .github/workflows/deploy-admin-portal.yml
 
 jobs:
   deploy:
