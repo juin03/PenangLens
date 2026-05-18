@@ -155,7 +155,7 @@ def run_yolo_detection(pil_image: Image.Image, poi_id: str | None = None) -> tup
         return [], None
 
     results = yolo_model.predict(
-        source=pil_image, conf=0.61, iou=0.45,
+        source=pil_image, conf=0.56, iou=0.45,
         device=DEVICE, save=False, verbose=False
     )
     result = results[0]
