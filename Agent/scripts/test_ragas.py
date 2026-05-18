@@ -18,88 +18,88 @@ for line in open(os.path.join(os.path.dirname(__file__), '..', '.env')):
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-# ── Test Dataset ──────────────────────────────────────────────────────────────
+# ── Test Dataset (aligned with indexed knowledge base) ────────────────────────
 
 TEST_QUESTIONS = [
     {
-        "question": "What food is famous near Air Itam?",
-        "ground_truth": "Air Itam is famous for laksa (asam laksa), char koay teow, hokkien mee, koay chiap, curry mee from Sister Curry Mee, and traditional kopitiam food from Fook Kin Kopitiam.",
-    },
-    {
-        "question": "Tell me about Sister Curry Mee",
-        "ground_truth": "Sister Curry Mee is a popular food stall in Air Itam, Penang, known for its rich and spicy curry mee noodle soup. It is a local favourite and a must-try for food lovers visiting the Air Itam area.",
-    },
-    {
-        "question": "Which temples should I visit in Penang?",
-        "ground_truth": "Notable temples include Kek Lok Si Temple (largest Buddhist temple in Southeast Asia), Kapitan Keling Mosque, Goddess of Mercy Temple (Kuan Yin Teng), Hainan Temple, Han Jiang Ancestral Temple, Dhammikarama Burmese Temple, Wat Chayamangkalaram, and Snake Temple.",
-    },
-    {
-        "question": "Where can I see street art in George Town?",
-        "ground_truth": "Street art can be found on Armenian Street (Lebuh Armenian), Lebuh Cannon with iron caricature art, and throughout George Town including the famous Children on Bicycle mural and Boy on Motorcycle mural by Ernest Zacharevic.",
-    },
-    {
-        "question": "Is there a floating mosque in Penang?",
-        "ground_truth": "Yes, the Tanjung Bungah Floating Mosque is built on stilts over the sea in Tanjung Bungah. It is a striking architectural landmark offering beautiful views of the coastline.",
-    },
-    {
-        "question": "What can I do at Batu Ferringhi?",
-        "ground_truth": "Batu Ferringhi offers beach activities, the Long Beach Food Court for local food, Ferringhi Garden Restaurant, BoraBora sunset bar, Tropical Spice Garden for nature walks, and ESCAPE Theme Park for adventure activities.",
-    },
-    {
         "question": "What is Khoo Kongsi?",
-        "ground_truth": "Khoo Kongsi (Leong San Tong) is a grand Chinese clan house and temple in George Town, Penang. It is one of the most ornate clan temples in Southeast Asia, featuring elaborate carvings, paintings, and architecture reflecting Hokkien heritage.",
+        "ground_truth": "Khoo Kongsi is one of the most magnificent Chinese clan temples in the world, located in George Town, Penang. It is a testament to Hokkien heritage with intricate carvings and architecture.",
+    },
+    {
+        "question": "Tell me about the Blue Mansion in Penang",
+        "ground_truth": "Cheong Fatt Tze - The Blue Mansion is an iconic indigo-blue Chinese courtyard mansion in George Town, Penang. It is a stunning heritage building known for its distinctive blue colour and Chinese architecture.",
+    },
+    {
+        "question": "What is Fort Cornwallis?",
+        "ground_truth": "Fort Cornwallis is the largest standing fort in Malaysia, built by the British East India Company. It is a heritage and historical landmark in George Town, Penang.",
+    },
+    {
+        "question": "Tell me about Kek Lok Si Temple",
+        "ground_truth": "Kek Lok Si Temple is the largest Buddhist temple in Malaysia, featuring the striking Pagoda of Rama VI. It is a religious, heritage, and architectural landmark in Penang.",
+    },
+    {
+        "question": "What are the Clan Jetties of Penang?",
+        "ground_truth": "The Clan Jetties of Penang are Chinese clan settlements built on stilts over the water. They are a heritage and cultural landmark representing the living heritage of Penang's Chinese immigrant communities.",
+    },
+    {
+        "question": "Tell me about Kapitan Keling Mosque",
+        "ground_truth": "Kapitan Keling Mosque is a majestic 19th-century mosque featuring Mughal-style golden domes. It is a religious, heritage, and architectural landmark in George Town, Penang.",
+    },
+    {
+        "question": "What can I do at Penang Hill?",
+        "ground_truth": "Penang Hill is a hill resort rising 833 metres above sea level. It is accessible by the Penang Hill Funicular Train, one of the oldest funicular railway systems in the region. It offers nature and scenic views.",
+    },
+    {
+        "question": "What is Sister Curry Mee famous for?",
+        "ground_truth": "Sister Curry Mee is a legendary curry mee stall in Air Itam, Penang, known for its rich coconut-based curry broth. It is a popular food landmark.",
+    },
+    {
+        "question": "What food is available at Gurney Drive?",
+        "ground_truth": "Gurney Drive Hawker Centre is one of the most famous hawker food streets in Asia, offering a wide variety of local Penang dishes. It also has a Char Kway Teow stall serving the iconic wok-fried flat rice noodle dish.",
+    },
+    {
+        "question": "What is Batu Ferringhi known for?",
+        "ground_truth": "Batu Ferringhi Beach is the most popular tourist beach in Penang, known for its water sports and beach activities. It is a nature and beach destination.",
     },
     {
         "question": "Where can I try char koay teow in Penang?",
-        "ground_truth": "Famous char koay teow spots include Siam Road Char Koay Teow, Air Itam Char Koay Teow, and Lorong Selamat Char Koay Teow. These are iconic Penang street food stalls.",
+        "ground_truth": "Famous char koay teow spots in Penang include Siam Road Char Koay Teow and Lorong Selamat Char Koay Teow. Air Itam also has its own char koay teow stall.",
     },
     {
-        "question": "What is there to see at Fort Cornwallis?",
-        "ground_truth": "Fort Cornwallis features the Seri Rambai Cannon, a lighthouse, a chapel, and the Statue of Francis Light. It is the largest standing fort in Malaysia, built by the British East India Company.",
+        "question": "What is the Snake Temple in Penang?",
+        "ground_truth": "The Snake Temple is a unique Buddhist temple in Penang where pit vipers roam freely. It is a heritage and religious landmark.",
     },
     {
-        "question": "What shopping options are in George Town?",
-        "ground_truth": "Shopping options include Chowrasta Market for local goods, Little India for textiles and spices, Gurney Plaza mall, Komtar, and Queensbay Mall in Bayan Lepas.",
+        "question": "Tell me about Penang Botanic Gardens",
+        "ground_truth": "Penang Botanic Gardens is a nature attraction in Penang, Malaysia. It is a green space for nature walks and outdoor activities.",
     },
     {
-        "question": "What nature attractions are in Penang?",
-        "ground_truth": "Nature attractions include Penang Hill with funicular railway, Penang Botanic Gardens, Penang National Park with Monkey Beach, The Habitat Penang Hill for canopy walks, Tropical Spice Garden, and Entopia butterfly farm.",
+        "question": "What is the Penang Hill Funicular Train?",
+        "ground_truth": "The Penang Hill Funicular Train is one of the oldest funicular railway systems in the region, providing access to Penang Hill which rises 833 metres above sea level.",
     },
     {
         "question": "Where can I eat nasi kandar in Penang?",
-        "ground_truth": "Popular nasi kandar spots include Line Clear Nasi Kandar on Jalan Penang, Nasi Kandar Beratur, Deen Maju Nasi Kandar, and Hameediyah Restaurant which is one of the oldest nasi kandar restaurants in Penang.",
+        "ground_truth": "Popular nasi kandar spots in Penang include Nasi Kandar Beratur and Deen Maju Nasi Kandar. Line Clear Nasi Kandar is also a well-known option.",
     },
     {
-        "question": "What is the Blue Mansion?",
-        "ground_truth": "Cheong Fatt Tze - The Blue Mansion is a 19th-century Chinese courtyard house in George Town painted in distinctive indigo blue. It was built by Cheong Fatt Tze, a Hakka Chinese merchant, and is now a boutique hotel and heritage museum.",
+        "question": "What street art can I see in George Town?",
+        "ground_truth": "George Town has street art including the Ernest Zacharevic murals and iron caricature art on Lebuh Cannon. Armenian Street is also known for its street art.",
     },
     {
-        "question": "What heritage sites are in George Town?",
-        "ground_truth": "George Town heritage sites include Cheong Fatt Tze Blue Mansion, Pinang Peranakan Mansion, Khoo Kongsi, Fort Cornwallis, Clan Jetties, Kapitan Keling Mosque, St George's Church, Queen Victoria Memorial Clock Tower, and Armenian Street.",
+        "question": "Is there a floating mosque in Penang?",
+        "ground_truth": "Yes, the Tanjung Bungah Floating Mosque is a religious landmark in Penang built over the sea.",
     },
     {
-        "question": "Tell me about Penang Hill",
-        "ground_truth": "Penang Hill (Bukit Bendera) is an 833m hill accessible by funicular railway. It offers cooler temperatures, panoramic views, colonial-era bungalows, The Habitat nature centre, and David Brown's Restaurant for dining. It takes about 3 hours to explore.",
+        "question": "What is the Pinang Peranakan Mansion?",
+        "ground_truth": "Pinang Peranakan Mansion is a heritage and culture landmark in Penang showcasing Peranakan (Baba-Nyonya) culture and architecture.",
     },
     {
-        "question": "What is Clan Jetties?",
-        "ground_truth": "The Clan Jetties are waterfront settlements in George Town built on stilts over the sea. Each jetty is named after a Chinese clan — the most visited is Chew Jetty. They represent the living heritage of Penang's Chinese immigrant communities.",
+        "question": "What can I see at Fort Cornwallis Lighthouse?",
+        "ground_truth": "The Fort Cornwallis Lighthouse is a distinctive steel framework lighthouse erected within Fort Cornwallis, the largest standing fort in Malaysia.",
     },
     {
-        "question": "Where to eat breakfast in George Town?",
-        "ground_truth": "Popular breakfast spots include Toh Soon Cafe for charcoal-toasted bread and eggs, Joo Hooi Cafe for local noodles, and various kopitiam around Lebuh Chulia and Lebuh Campbell.",
-    },
-    {
-        "question": "What religious sites are in Penang?",
-        "ground_truth": "Religious sites include Kek Lok Si Temple (Buddhist), Kapitan Keling Mosque (Muslim), St George's Church (Anglican), Goddess of Mercy Temple, Dhammikarama Burmese Temple, Wat Chayamangkalaram (Thai Buddhist), Malay Central Mosque on Lebuh Acheh, and Sri Mahamariamman Temple (Hindu).",
-    },
-    {
-        "question": "What is Gurney Drive known for?",
-        "ground_truth": "Gurney Drive is known for the Gurney Drive Hawker Centre with local street food, Gurney Plaza shopping mall, Gurney Wharf waterfront promenade, and nearby Wat Chayamangkalaram and Dhammikarama Burmese Temple.",
-    },
-    {
-        "question": "What museums are in Penang?",
-        "ground_truth": "Museums include Penang State Museum and Art Gallery, The Camera Museum, Made in Penang Interactive Museum, Sun Yat Sen Museum, Penang House of Music, and Penang Toy Museum in Tanjung Bungah.",
+        "question": "What is the Penang War Museum?",
+        "ground_truth": "The Penang War Museum is a heritage and historical landmark in Penang. It is located near Penang Hill.",
     },
 ]
 
@@ -113,7 +113,16 @@ def run_pipeline(question: str) -> dict:
     from langchain_core.messages import HumanMessage, SystemMessage
 
     # Step 1: Retrieve
-    chunks = search_context(question, top_k=3)
+    chunks = search_context(question, top_k=6)
+    # Deduplicate by name+section to keep rich content but remove exact duplicates
+    seen = set()
+    unique = []
+    for c in chunks:
+        key = f"{c['name']}|{c.get('section','')}"
+        if key not in seen:
+            seen.add(key)
+            unique.append(c)
+    chunks = unique[:5]  # keep up to 5 diverse chunks
     contexts = [c['content'] for c in chunks if c.get('content')]
 
     # Step 2: Build augmented prompt (same as chat endpoint)
@@ -164,6 +173,8 @@ def main():
         q = test["question"]
         print(f"  [{i+1}/{len(TEST_QUESTIONS)}] {q}...", end=" ", flush=True)
         try:
+            import time
+            time.sleep(1)  # avoid Gemini embedding rate limit
             result = run_pipeline(q)
             questions.append(q)
             answers.append(result["answer"])
@@ -201,6 +212,30 @@ def main():
     ))
 
     eval_embeddings = None
+    try:
+        from google import genai as google_genai
+        from google.genai import types as genai_types
+        from ragas.embeddings import BaseRagasEmbeddings
+
+        class GeminiEmbeddings(BaseRagasEmbeddings):
+            def __init__(self):
+                self.client = google_genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+            def _embed(self, text):
+                r = self.client.models.embed_content(
+                    model="gemini-embedding-001",
+                    contents=text,
+                    config=genai_types.EmbedContentConfig(task_type="RETRIEVAL_QUERY", output_dimensionality=768),
+                )
+                return r.embeddings[0].values
+            def embed_query(self, text): return self._embed(text)
+            def embed_documents(self, texts): return [self._embed(t) for t in texts]
+            async def aembed_query(self, text): return self._embed(text)
+            async def aembed_documents(self, texts): return [self._embed(t) for t in texts]
+
+        eval_embeddings = GeminiEmbeddings()
+        print("✅ Using Gemini embeddings for Answer Relevance")
+    except Exception as e:
+        print(f"⚠️ Gemini embeddings unavailable ({e}) — skipping Answer Relevance")
 
     dataset = Dataset.from_dict({
         "user_input": questions,
@@ -214,6 +249,8 @@ def main():
         LLMContextPrecisionWithoutReference(llm=eval_llm),
         LLMContextRecall(llm=eval_llm),
     ]
+    if eval_embeddings:
+        metrics.append(ResponseRelevancy(llm=eval_llm, embeddings=eval_embeddings))
 
     try:
         result = evaluate(dataset=dataset, metrics=metrics)

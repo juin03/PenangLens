@@ -471,6 +471,7 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
         if intent == IntentType.GENERAL_QUESTION:
             augmented_message = (
                 "[INSTRUCTION: Answer the user's question about Penang concisely. "
+                "Answer ONLY using the provided context. Do not add information not present in the context. "
                 "Do NOT plan an itinerary or use itinerary tools. Just provide helpful information.]\n\n"
                 + augmented_message
             )
