@@ -1,0 +1,21 @@
+name: Update Mobile App
+
+on:
+  push:
+    branches: [main]
+    paths: [MobileApp/**]
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+        working-directory: MobileApp
+      - run: npx eas-cli update --branch preview --message "${{ github.event.head_commit.message }}" --platform android --non-interactive
+        working-directory: MobileApp
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}

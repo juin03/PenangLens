@@ -505,7 +505,7 @@ export default function ItineraryScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'android' ? 0 : 0}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + scale(8) }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerBack}>
@@ -600,7 +600,7 @@ export default function ItineraryScreen() {
       </View>
 
       {/* Input bar */}
-      <View style={[styles.inputBar, { paddingBottom: Spacing.sm + insets.bottom }]}>
+      <View style={styles.inputBar}>
         <TextInput
           style={styles.inputField}
           placeholder="Modify plan or ask anything…"

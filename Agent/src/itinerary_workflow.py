@@ -1463,30 +1463,30 @@ def run_itinerary_workflow(
     logger.info(f"workflow: starting — {len(state['interests'])} interests, {travel_mode}, {start_time}-{end_time}, location={start_location}")
 
     _status("🔍 Understanding your request...")
-    logger.info("workflow: [1/7] parse_description_node")
+    logger.info("workflow: [1/9] parse_description_node")
     state.update(parse_description_node(state))
 
     _status("📚 Finding local recommendations...")
-    logger.info("workflow: [2/7] fetch_recommendations (RAG)")
+    logger.info("workflow: [2/9] fetch_recommendations (RAG)")
     state.update(fetch_recommendations(state))
 
     _status("🧠 Planning your itinerary...")
-    logger.info("workflow: [3/7] plan_node (LLM)")
+    logger.info("workflow: [3/9] plan_node (LLM)")
     state.update(plan_node(state))
     if state.get("error") or not state["selected_stops"]:
         raise RuntimeError(state.get("error") or "No stops planned")
 
     _status("📍 Validating places on Google Maps...")
-    logger.info("workflow: [4/7] enrich_node (Google API)")
+    logger.info("workflow: [4/9] enrich_node (Google API)")
     state.update(enrich_node(state))
     if not state.get("candidates"):
         raise RuntimeError("No valid places found after Google validation")
 
     _status("🚗 Calculating travel times...")
-    logger.info("workflow: [5/7] travel_time_node (Google API)")
+    logger.info("workflow: [5/9] travel_time_node (Google API)")
     state.update(travel_time_node(state))
 
-    logger.info("workflow: [6.5/7] validate_node")
+    logger.info("workflow: [6/9] validate_node")
     state.update(validate_node(state))
 
     if not state.get("optimized_order"):
@@ -1497,9 +1497,9 @@ def run_itinerary_workflow(
     refine_result = refine_node(state)
     if refine_result:
         state.update(refine_result)
-        logger.info("workflow: [7.5/9] travel_time_node (recalc after refine)")
+        logger.info("workflow: [7b/9] travel_time_node (recalc after refine)")
         state.update(travel_time_node(state))
-        logger.info("workflow: [7.6/9] validate_node (re-enforce end time after refine)")
+        logger.info("workflow: [7c/9] validate_node (re-enforce end time after refine)")
         state.update(validate_node(state))
 
     _status("📋 Building your itinerary...")

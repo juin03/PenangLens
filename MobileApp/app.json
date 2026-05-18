@@ -23,7 +23,7 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "edgeToEdgeEnabled": true,
+      "edgeToEdgeEnabled": false,
       "predictiveBackGestureEnabled": false,
       "config": {
         "googleMaps": {
@@ -61,6 +61,12 @@
         "projectId": "6373dc66-5b00-4d1c-a35e-0b65d98288b9"
       }
     },
-    "owner": "juin03"
+    "owner": "juin03",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/6373dc66-5b00-4d1c-a35e-0b65d98288b9"
+    }
   }
 }

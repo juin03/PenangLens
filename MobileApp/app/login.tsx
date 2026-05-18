@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, Image,
   ScrollView, KeyboardAvoidingView, Platform
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -63,7 +63,7 @@ export default function LoginScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         {/* Header illustration area */}
         <View style={[styles.headerBg, { paddingTop: insets.top }]}>
-          <Text style={styles.logoIcon}>🏛️</Text>
+          <Image source={require("@/assets/images/logo.png")} style={{ width: scale(100), height: scale(100), borderRadius: scale(50) }} />
         </View>
 
         <View style={styles.body}>

@@ -20,4 +20,6 @@ Agent/dist/
 agent.json
 visionsleep.json
 *.webpazure-credentials.json
+/documentation
 # !VisionML/models/best.pt
+azure-credentials.json
