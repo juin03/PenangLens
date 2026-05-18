@@ -14,4 +14,4 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
       - run: az acr build --registry penanglenscr --image agent:${{ github.sha }} ./Agent
-      - run: az containerapp update --name agent --resource-group rg-penanglens --image penanglenscr.azurecr.io/agent:${{ github.sha }}
+      - run: az containerapp update --name agent --resource-group rg-penanglens --image penanglenscr.azurecr.io/agent:${{ github.sha }} --min-replicas 1
