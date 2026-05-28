@@ -16,4 +16,4 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
       - run: az acr build --registry penanglenscr --image admin-portal:${{ github.sha }} --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${{ secrets.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY }} ./admin-portal
-      - run: az containerapp update --name admin-portal --resource-group rg-penanglens --image penanglenscr.azurecr.io/admin-portal:${{ github.sha }} --min-replicas 1
+      - run: az containerapp update --name admin-portal --resource-group rg-penanglens --image penanglenscr.azurecr.io/admin-portal:${{ github.sha }} --min-replicas 0
