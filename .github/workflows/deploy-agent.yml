@@ -3,7 +3,10 @@ name: Deploy Agent
 on:
   push:
     branches: [main]
-    paths: [Agent/**]
+    paths:
+      - Agent/**
+      - .github/workflows/deploy-agent.yml
+  workflow_dispatch:
 
 jobs:
   deploy:

@@ -3,7 +3,10 @@ name: Deploy VisionML
 on:
   push:
     branches: [main]
-    paths: [VisionML/**]
+    paths:
+      - VisionML/**
+      - .github/workflows/deploy-visionml.yml
+  workflow_dispatch:
 
 jobs:
   deploy:
