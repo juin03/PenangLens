@@ -6,10 +6,8 @@ import { usePathname, useRouter } from 'next/navigation';
 const navItems = [
   { href: '/admin/spots', label: 'Content', icon: '🏛️' },
   { href: '/admin/map', label: 'Map', icon: '🗺️' },
-  { href: '/admin/analytics', label: 'Analytics', icon: '📊' },
   { href: '/admin/itineraries', label: 'Itinerary Feedback', icon: '🗓️' },
   { href: '/admin/recognition', label: 'Scan Feedback', icon: '🔍' },
-  { href: '/admin/chat-feedback', label: 'Chat Feedback', icon: '💬' },
   { href: '/admin/users', label: 'Users', icon: '👥' },
   { href: '/admin/system', label: 'System', icon: '⚙️' },
 ];
