@@ -4,6 +4,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Colors, Radius, scale } from '@/constants/theme';
 import { API_BASE_URL } from '@/api/client';
 
@@ -16,7 +17,17 @@ export default function ScanScreen() {
   const [scanning, setScanning] = useState(false);
   const [flash, setFlash] = useState(false);
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(0);
+  const baseZoom = useRef(0);
   const cameraRef = useRef<CameraView>(null);
+
+  const pinchGesture = Gesture.Pinch()
+    .onStart(() => { baseZoom.current = zoom; })
+    .onUpdate((e) => {
+      const next = Math.min(1, Math.max(0, baseZoom.current + (e.scale - 1) * 0.3));
+      setZoom(next);
+    })
+    .runOnJS(true);
 
   if (!permission) {
     return <View style={styles.center}><ActivityIndicator size="large" color={Colors.accent} /></View>;
@@ -81,7 +92,7 @@ export default function ScanScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <GestureHandlerRootView style={styles.container}>
       {/* Show captured image OR live camera */}
       {capturedUri ? (
         <View style={styles.camera}>
@@ -100,7 +111,8 @@ export default function ScanScreen() {
           </View>
         </View>
       ) : (
-        <CameraView ref={cameraRef} style={styles.camera} facing="back" flash={flash ? 'on' : 'off'}>
+        <GestureDetector gesture={pinchGesture}>
+        <CameraView ref={cameraRef} style={styles.camera} facing="back" flash={flash ? 'on' : 'off'} zoom={zoom}>
           {/* Top bar — flash only */}
           <View style={[styles.topBar, { paddingTop: insets.top + scale(10) }]}>
             <View style={{ flex: 1 }} />
@@ -136,8 +148,9 @@ export default function ScanScreen() {
             <View style={styles.sideBtn} />
           </View>
         </CameraView>
+        </GestureDetector>
       )}
-    </View>
+    </GestureHandlerRootView>
   );
 }
 
