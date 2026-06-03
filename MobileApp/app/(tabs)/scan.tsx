@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Image } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -18,16 +18,20 @@ export default function ScanScreen() {
   const [flash, setFlash] = useState(false);
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0);
-  const baseZoom = useRef(0);
+  const zoomRef = useRef(0);       // always up-to-date, readable from gesture callbacks
+  const startZoom = useRef(0);     // zoom level captured at pinch start
   const cameraRef = useRef<CameraView>(null);
 
-  const pinchGesture = Gesture.Pinch()
-    .onStart(() => { baseZoom.current = zoom; })
-    .onUpdate((e) => {
-      const next = Math.min(1, Math.max(0, baseZoom.current + (e.scale - 1) * 0.3));
-      setZoom(next);
+  const pinchGesture = useMemo(() => Gesture.Pinch()
+    .runOnJS(true)
+    .onStart(() => {
+      startZoom.current = zoomRef.current;
     })
-    .runOnJS(true);
+    .onUpdate((e) => {
+      const next = Math.min(1, Math.max(0, startZoom.current + (e.scale - 1) * 0.4));
+      zoomRef.current = next;
+      setZoom(next);
+    }), []);
 
   if (!permission) {
     return <View style={styles.center}><ActivityIndicator size="large" color={Colors.accent} /></View>;
