@@ -17,4 +17,4 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
       - run: az acr build --registry penanglenscr --image visionml:${{ github.sha }} ./VisionML
-      - run: az containerapp update --name visionml --resource-group rg-penanglens --image penanglenscr.azurecr.io/visionml:${{ github.sha }} --min-replicas 0
+      - run: az containerapp update --name visionml --resource-group rg-penanglens --image penanglenscr.azurecr.io/visionml:${{ github.sha }} --min-replicas 1
