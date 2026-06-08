@@ -8,6 +8,7 @@ const navItems = [
   { href: '/admin/map', label: 'Map', icon: '🗺️' },
   { href: '/admin/itineraries', label: 'Itinerary Feedback', icon: '🗓️' },
   { href: '/admin/recognition', label: 'Scan Feedback', icon: '🔍' },
+  { href: '/admin/chat-feedback', label: 'Chat Feedback', icon: '💬' },
   { href: '/admin/users', label: 'Users', icon: '👥' },
   { href: '/admin/system', label: 'System', icon: '⚙️' },
 ];
