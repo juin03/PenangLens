@@ -1,33 +1,64 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
 import s from '../admin.module.css';
 
 interface ChatFeedbackItem {
-  id: string; rating: number; aiMessage: string; userMessage?: string; context?: string; threadId?: string; createdAt: string;
-  user?: { email: string };
+  id: string;
+  rating: number;          // 1–5 stars
+  comment?: string | null;
+  context?: string | null; // landmark / page the chat was about
+  threadId?: string | null;
+  messageCount?: number | null;
+  status: string;          // 'pending' | 'reviewed'
+  createdAt: string;
+  user?: { email: string } | null;
   threadHistory?: { role: string; content: string; createdAt: string }[] | null;
+}
+
+function Stars({ n }: { n: number }) {
+  return <span style={{ color: '#f59e0b', letterSpacing: 1 }}>{'★'.repeat(n)}{'☆'.repeat(Math.max(0, 5 - n))}</span>;
 }
 
 export default function ChatFeedbackPage() {
   const [items, setItems] = useState<ChatFeedbackItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [ratingFilter, setRatingFilter] = useState('');
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [statusFilter, setStatusFilter] = useState('pending');
+  const [saving, setSaving] = useState<string | null>(null);
   const [threadExpanded, setThreadExpanded] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
+  const load = () => {
     const token = localStorage.getItem('admin_token');
-    const params = new URLSearchParams({ page: String(page) });
-    if (ratingFilter) params.set('rating', ratingFilter);
+    const params = new URLSearchParams({ page: String(page), status: statusFilter });
     fetch(`/api/admin/chat-feedback?${params}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then(r => r.json()).then(d => { setItems(d.items ?? []); setTotal(d.total ?? 0); });
-  }, [page, ratingFilter]);
+  };
 
-  const toggle = (id: string, set: Set<string>, setter: (s: Set<string>) => void) => {
-    const next = new Set(set); next.has(id) ? next.delete(id) : next.add(id); setter(next);
+  useEffect(() => { load(); }, [page, statusFilter]);
+
+  const markReviewed = async (id: string) => {
+    setSaving(id);
+    const token = localStorage.getItem('admin_token');
+    await fetch(`/api/admin/chat-feedback/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ status: 'reviewed' }),
+    });
+    setSaving(null); load();
+  };
+
+  const removeFeedback = async (id: string) => {
+    if (!confirm('Delete this feedback?')) return;
+    const token = localStorage.getItem('admin_token');
+    await fetch(`/api/admin/chat-feedback/${id}`, { method: 'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    load();
+  };
+
+  const toggleThread = (id: string) => {
+    const next = new Set(threadExpanded);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setThreadExpanded(next);
   };
 
   const totalPages = Math.ceil(total / 20);
@@ -35,12 +66,12 @@ export default function ChatFeedbackPage() {
   return (
     <div className={s.page}>
       <h1 className={s.pageTitle}>💬 Chat Feedback Review</h1>
-      <p className={s.pageSubtitle}>User thumbs up/down on AI chat responses.</p>
+      <p className={s.pageSubtitle}>Per-session star ratings users gave the Penang chat assistant.</p>
 
       <div className={s.filterBar}>
-        {[{ label: 'All', val: '' }, { label: '👍 Positive', val: '1' }, { label: '👎 Negative', val: '-1' }].map(f => (
-          <button key={f.val} className={`${s.filterBtn} ${ratingFilter === f.val ? s.filterBtnActive : ''}`}
-            onClick={() => { setRatingFilter(f.val); setPage(1); }}>{f.label}</button>
+        {(['pending', 'reviewed', 'all'] as const).map(v => (
+          <button key={v} className={`${s.filterBtn} ${statusFilter === v ? s.filterBtnActive : ''}`}
+            onClick={() => { setStatusFilter(v); setPage(1); }} style={{ textTransform: 'capitalize' }}>{v}</button>
         ))}
         <span className={s.filterCount}>{total} items</span>
       </div>
@@ -48,60 +79,49 @@ export default function ChatFeedbackPage() {
       {items.length === 0 ? <p className={s.empty}>No feedback found.</p> : (
         <>
           {items.map(item => {
-            const isExpanded = expanded.has(item.id);
             const isThreadOpen = threadExpanded.has(item.id);
-            const isLong = item.aiMessage.length > 300;
             return (
               <div key={item.id} className={s.card}>
-                <div className={s.cardHeader} onClick={() => toggle(item.id, expanded, setExpanded)}>
+                <div className={s.cardHeader}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {item.aiMessage.slice(0, 120)}{item.aiMessage.length > 120 ? '…' : ''}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>
+                    <div style={{ fontSize: 16 }}><Stars n={item.rating} /></div>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>
                       {item.user?.email ?? 'Guest'} · {new Date(item.createdAt).toLocaleDateString()}
                       {item.context && <span> · {item.context}</span>}
+                      {item.messageCount != null && <span> · {item.messageCount} messages</span>}
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-                    <span className={`${s.badge} ${item.rating === 1 ? s.badgeGood : s.badgeBad}`}>
-                      {item.rating === 1 ? '👍' : '👎'}
-                    </span>
-                    <span style={{ color: '#9ca3af', fontSize: 16 }}>{isExpanded ? '▲' : '▼'}</span>
+                    <span className={`${s.badge} ${item.status === 'reviewed' ? s.badgeReviewed : s.badgePending}`}>{item.status}</span>
+                    {item.status === 'pending' && (
+                      <button className={s.btnPrimary} onClick={() => markReviewed(item.id)} disabled={saving === item.id}>
+                        {saving === item.id ? '…' : '✓ Reviewed'}
+                      </button>
+                    )}
+                    <button className={s.btnDanger} onClick={() => removeFeedback(item.id)}>🗑</button>
                   </div>
                 </div>
 
-                {isExpanded && (
-                  <div className={s.cardBody}>
-                    {item.userMessage && (
-                      <div className={s.section}>
-                        <div className={s.sectionTitle}>👤 User Message</div>
-                        <div className={s.promptBox}>{item.userMessage}</div>
-                      </div>
-                    )}
+                {item.comment && (
+                  <div className={s.section}>
+                    <div className={s.sectionTitle}>💬 Comment</div>
+                    <div className={s.promptBox}>{item.comment}</div>
+                  </div>
+                )}
 
-                    <div className={s.section}>
-                      <div className={s.sectionTitle}>🤖 AI Response</div>
-                      <div className={s.promptBox} style={{ maxHeight: isLong && !isExpanded ? 120 : undefined, overflow: 'hidden' }}>
-                        <ReactMarkdown>{item.aiMessage}</ReactMarkdown>
-                      </div>
-                    </div>
-
-                    {item.threadId && (
-                      <div className={s.section}>
-                        <button className={s.filterBtn} onClick={() => toggle(item.id, threadExpanded, setThreadExpanded)}>
-                          {isThreadOpen ? '▾ Hide conversation' : '› View full conversation'}
-                        </button>
-                        {isThreadOpen && item.threadHistory && (
-                          <div className={s.chatWrap} style={{ marginTop: 8 }}>
-                            {item.threadHistory.map((m, i) => (
-                              <div key={i} className={`${s.bubble} ${m.role === 'user' ? s.bubbleUser : s.bubbleAI}`}>
-                                <span className={s.bubbleLabel}>{m.role === 'user' ? 'User' : 'AI'}:</span>
-                                {m.content.length > 400 ? m.content.slice(0, 400) + '…' : m.content}
-                              </div>
-                            ))}
+                {item.threadId && item.threadHistory && item.threadHistory.length > 0 && (
+                  <div className={s.section}>
+                    <button className={s.filterBtn} onClick={() => toggleThread(item.id)}>
+                      {isThreadOpen ? '▾ Hide conversation' : '› View full conversation'}
+                    </button>
+                    {isThreadOpen && (
+                      <div className={s.chatWrap} style={{ marginTop: 8 }}>
+                        {item.threadHistory.map((m, i) => (
+                          <div key={i} className={`${s.bubble} ${m.role === 'user' ? s.bubbleUser : s.bubbleAI}`}>
+                            <span className={s.bubbleLabel}>{m.role === 'user' ? 'User' : 'AI'}:</span>
+                            {m.content.length > 400 ? m.content.slice(0, 400) + '…' : m.content}
                           </div>
-                        )}
+                        ))}
                       </div>
                     )}
                   </div>

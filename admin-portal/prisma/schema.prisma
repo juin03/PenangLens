@@ -211,14 +211,15 @@ model RecognitionFeedback {
 }
 
 model ChatFeedback {
-  id          String   @id @default(uuid()) @map("chat_feedback_id")
-  rating      Int      // 1 = thumbs up, -1 = thumbs down
-  aiMessage   String   @map("ai_message") @db.Text
-  userMessage String?  @map("user_message") @db.Text
-  context     String?  // spot name or page context
-  threadId    String?  @map("thread_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  userId      String?  @map("user_id")
+  id           String   @id @default(uuid()) @map("chat_feedback_id")
+  rating       Int      // 1–5 stars (per-session rating, like ItineraryFeedback)
+  comment      String?  @db.Text
+  context      String?  // landmark name / page the conversation was about
+  threadId     String?  @map("thread_id") // conversation/session id
+  messageCount Int?     @map("message_count") // # of messages in the session
+  status       String   @default("pending") // 'pending' | 'reviewed'
+  createdAt    DateTime @default(now()) @map("created_at")
+  userId       String?  @map("user_id")
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 

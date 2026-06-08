@@ -4,7 +4,7 @@ import {
   TextInput, FlatList, Image, ActivityIndicator, Modal, Pressable,
   useWindowDimensions, Animated,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Radius, Spacing, scale } from '@/constants/theme';
 import { API_BASE_URL, saveScanResult, getToken } from '@/api/client';
@@ -181,6 +181,7 @@ const fs = StyleSheet.create({
 // ── Main screen ──────────────────────────────────────────────────────────────
 export default function LandmarkResultScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<TabType>('result');
@@ -190,10 +191,13 @@ export default function LandmarkResultScreen() {
   ]);
   const [chatLoading, setChatLoading] = useState(false);
   const [threadId, setThreadId] = useState<string | undefined>(undefined);
-  const [ratedMessages, setRatedMessages] = useState<Record<number, 1 | -1>>({});
-  const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
-  const [feedbackComment, setFeedbackComment] = useState('');
-  const [pendingBadFeedback, setPendingBadFeedback] = useState<{ idx: number; aiMessage: string; userMessage?: string } | null>(null);
+  // Per-session chat feedback (1–5 stars), prompted when leaving the chat
+  const [chatRated, setChatRated] = useState(false);
+  const [chatRatingModalVisible, setChatRatingModalVisible] = useState(false);
+  const [chatStars, setChatStars] = useState(0);
+  const [chatComment, setChatComment] = useState('');
+  const userMsgCount = chatMessages.filter(m => m.role === 'user').length;
+  const hasChatted = userMsgCount > 0;
   const [scanRecordId, setScanRecordId] = useState<string | null>(null);
   const [scanFeedbackSubmitted, setScanFeedbackSubmitted] = useState(false);
   const [scanFeedbackModalVisible, setScanFeedbackModalVisible] = useState(false);
@@ -275,6 +279,27 @@ export default function LandmarkResultScreen() {
       });
   }, []);
 
+  // ── Prompt for a session chat rating when leaving (only if the user chatted) ──
+  const pendingLeaveAction = useRef<any>(null);
+  useEffect(() => {
+    const unsub = (navigation as any).addListener('beforeRemove', (e: any) => {
+      if (!hasChatted || chatRated) return; // nothing to rate, or already rated → leave freely
+      e.preventDefault();                    // pause navigation
+      pendingLeaveAction.current = e.data.action;
+      setChatRatingModalVisible(true);       // ask for a rating
+    });
+    return unsub;
+  }, [navigation, hasChatted, chatRated]);
+
+  /** Continue the navigation the user was attempting when the rating modal popped up. */
+  const continueLeaving = () => {
+    setChatRatingModalVisible(false);
+    const action = pendingLeaveAction.current;
+    pendingLeaveAction.current = null;
+    if (action) (navigation as any).dispatch(action);
+    else router.back();
+  };
+
   if (!scanData && !spotId) {
     return (
       <View style={styles.center}>
@@ -287,16 +312,23 @@ export default function LandmarkResultScreen() {
   }
 
   // ── Feedback helpers ─────────────────────────────────────────────────────
-  const sendChatFeedback = async (idx: number, rating: 1 | -1, aiMessage: string, userMessage?: string, comment?: string) => {
+  /** Submit a per-session 1–5 star rating for the whole conversation. */
+  const submitChatRating = async (stars: number, comment?: string) => {
+    setChatRated(true); // mark done immediately so the leave-prompt won't re-fire
     try {
       const BASE = API_BASE_URL.replace('/api/v1', '');
       const token = await getToken();
       await fetch(`${BASE}/api/v1/feedback/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ rating, aiMessage, userMessage, context: landmarkName, comment }),
+        body: JSON.stringify({
+          rating: stars,
+          comment: comment || undefined,
+          context: landmarkName,
+          threadId,
+          messageCount: userMsgCount,
+        }),
       });
-      setRatedMessages(prev => ({ ...prev, [idx]: rating }));
     } catch {}
   };
 
@@ -565,9 +597,8 @@ export default function LandmarkResultScreen() {
             data={chatMessages}
             keyExtractor={(_, i) => i.toString()}
             contentContainerStyle={{ padding: Spacing.md, paddingBottom: scale(80) }}
-            renderItem={({ item, index }) => {
+            renderItem={({ item }) => {
               const isUser = item.role === 'user';
-              const prevUserMsg = chatMessages.slice(0, index).reverse().find(m => m.role === 'user')?.content;
               return (
                 <View style={{ marginBottom: Spacing.sm }}>
                   <View style={[styles.bubble, isUser ? styles.userBubble : styles.aiBubble]}>
@@ -576,23 +607,6 @@ export default function LandmarkResultScreen() {
                       : <MarkdownText style={styles.bubbleText}>{item.content}</MarkdownText>
                     }
                   </View>
-                  {!isUser && item.content.length > 0 && (
-                    <View style={styles.feedbackRow}>
-                      {([1, -1] as const).map(r => {
-                        const voted = ratedMessages[index];
-                        return (
-                          <TouchableOpacity key={r} disabled={voted !== undefined}
-                            onPress={() => {
-                              if (r === 1) void sendChatFeedback(index, 1, item.content, prevUserMsg);
-                              else { setPendingBadFeedback({ idx: index, aiMessage: item.content, userMessage: prevUserMsg }); setFeedbackModalVisible(true); }
-                            }}
-                            style={[styles.feedbackBtn, voted === r && styles.feedbackBtnActive]}>
-                            <Text style={{ fontSize: scale(11) }}>{r === 1 ? '👍' : '👎'}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  )}
                 </View>
               );
             }}
@@ -622,29 +636,43 @@ export default function LandmarkResultScreen() {
             </TouchableOpacity>
           </View>
 
-          <Modal visible={feedbackModalVisible} transparent animationType="fade" onRequestClose={() => setFeedbackModalVisible(false)}>
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalBox}>
-                <Text style={styles.modalTitle}>What was wrong with this answer?</Text>
-                <TextInput style={styles.modalInput} placeholder="Optional comment..." placeholderTextColor={Colors.textMuted}
-                  value={feedbackComment} onChangeText={setFeedbackComment} multiline />
-                <View style={styles.modalButtons}>
-                  <TouchableOpacity style={styles.modalCancel} onPress={() => setFeedbackModalVisible(false)}>
-                    <Text style={{ color: Colors.textSecondary }}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.modalSubmit} onPress={async () => {
-                    if (!pendingBadFeedback) return;
-                    await sendChatFeedback(pendingBadFeedback.idx, -1, pendingBadFeedback.aiMessage, pendingBadFeedback.userMessage, feedbackComment.trim() || undefined);
-                    setFeedbackComment(''); setPendingBadFeedback(null); setFeedbackModalVisible(false);
-                  }}>
-                    <Text style={{ color: Colors.white, fontWeight: '700' }}>Submit</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </Modal>
         </View>
       )}
+
+      {/* Per-session chat rating modal — prompted when leaving after chatting */}
+      <Modal visible={chatRatingModalVisible} transparent animationType="fade" onRequestClose={continueLeaving}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>How was this conversation?</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: scale(6), marginVertical: scale(12) }}>
+              {[1, 2, 3, 4, 5].map(star => (
+                <TouchableOpacity key={star} onPress={() => setChatStars(star)}>
+                  <Text style={{ fontSize: scale(30), color: star <= chatStars ? '#f59e0b' : Colors.border }}>
+                    {star <= chatStars ? '★' : '☆'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TextInput style={styles.modalInput} placeholder="Optional comment..." placeholderTextColor={Colors.textMuted}
+              value={chatComment} onChangeText={setChatComment} multiline />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancel} onPress={continueLeaving}>
+                <Text style={{ color: Colors.textSecondary }}>Skip</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalSubmit, chatStars === 0 && { opacity: 0.5 }]}
+                disabled={chatStars === 0}
+                onPress={async () => {
+                  await submitChatRating(chatStars, chatComment.trim() || undefined);
+                  setChatComment(''); setChatStars(0);
+                  continueLeaving();
+                }}>
+                <Text style={{ color: Colors.white, fontWeight: '700' }}>Submit</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Scan feedback modal */}
       <Modal visible={scanFeedbackModalVisible} transparent animationType="fade" onRequestClose={() => setScanFeedbackModalVisible(false)}>

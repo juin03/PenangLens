@@ -4,10 +4,12 @@ import { verifyToken } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { rating, aiMessage, userMessage, context, comment } = body;
+  const { rating, comment, context, threadId, messageCount } = body;
 
-  if (!rating || !aiMessage) {
-    return NextResponse.json({ error: 'rating and aiMessage required' }, { status: 400 });
+  // Per-session rating: 1–5 stars
+  const stars = Number(rating);
+  if (!stars || stars < 1 || stars > 5) {
+    return NextResponse.json({ error: 'rating (1–5) is required' }, { status: 400 });
   }
 
   // Extract user ID from JWT if present (optional — works for guests too)
@@ -21,12 +23,16 @@ export async function POST(request: NextRequest) {
   } catch { /* guest—no user id */ }
 
   try {
-    const contextWithComment = comment
-      ? `${context || 'General Chat'} | User note: ${String(comment)}`
-      : context;
-
     await (prisma as any).chatFeedback.create({
-      data: { rating: Number(rating), aiMessage, userMessage, context: contextWithComment, threadId: body.threadId ?? null, userId },
+      data: {
+        rating: stars,
+        comment: comment ? String(comment) : null,
+        context: context ? String(context) : null,
+        threadId: threadId ?? null,
+        messageCount: messageCount != null ? Number(messageCount) : null,
+        status: 'pending',
+        userId,
+      },
     });
     return NextResponse.json({ success: true });
   } catch (error) {
