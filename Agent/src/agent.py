@@ -43,7 +43,7 @@ from .tools import (
     get_place_details,
     clear_search_cache,
 )
-from .guardrails import sanitize_input, check_penang_scope
+from .guardrails import sanitize_input, check_scope
 from .logging_config import get_logger
 
 logger = get_logger("penang_agent.core")
@@ -639,7 +639,7 @@ def create_graph():
                 break
 
         if latest_human:
-            is_allowed, rejection = check_penang_scope(latest_human.content)
+            is_allowed, rejection = check_scope(latest_human.content)
             if not is_allowed:
                 logger.warning(
                     "Guardrail blocked query",
@@ -1046,7 +1046,7 @@ async def run_agent_stream(
         return
 
     # Check guardrails
-    is_allowed, rejection = check_penang_scope(sanitized)
+    is_allowed, rejection = check_scope(sanitized)
     if not is_allowed:
         yield {
             "event_type": "token",
