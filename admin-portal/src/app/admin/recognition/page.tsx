@@ -6,7 +6,7 @@ import s from '../admin.module.css';
 interface FeedbackItem {
   id: string; isCorrect: boolean; status: string; adminNotes?: string; createdAt: string;
   user?: { email: string };
-  recognition?: { userImageUrl?: string; aiDetails?: { name?: string; description?: string }; poi?: { name: string } };
+  recognition?: { userImageUrl?: string; aiDetails?: { poi_name?: string; name?: string; description?: string }; poi?: { name: string } };
 }
 
 export default function RecognitionFeedbackPage() {
@@ -73,7 +73,7 @@ export default function RecognitionFeedbackPage() {
                 <div className={s.cardHeader} onClick={() => toggle(item.id)}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>
-                      {rec?.poi?.name ?? rec?.aiDetails?.name ?? 'Unknown landmark'}
+                      {rec?.poi?.name ?? rec?.aiDetails?.poi_name ?? rec?.aiDetails?.name ?? 'Unknown landmark'}
                     </div>
                     <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
                       {item.user?.email ?? 'Guest'} · {new Date(item.createdAt).toLocaleDateString()}
@@ -108,7 +108,7 @@ export default function RecognitionFeedbackPage() {
                           <div className={s.section}>
                             <div className={s.sectionTitle}>🤖 AI Identified As</div>
                             <div className={s.promptBox}>
-                              <strong>{rec.aiDetails.name}</strong>
+                              <strong>{rec.aiDetails.poi_name ?? rec.aiDetails.name ?? 'Unknown landmark'}</strong>
                               {rec.aiDetails.description && <div style={{ marginTop: 4, color: '#6b7280' }}>{rec.aiDetails.description}</div>}
                             </div>
                           </div>
