@@ -43,6 +43,7 @@ from src.extractor import extract_structured_itinerary
 from src.logging_config import setup_logging, setup_langsmith, get_logger
 from src.personalization import personalization_service
 from src.itinerary_workflow import modify_itinerary, PlaceUnavailableError
+from src.guardrails import check_scope
 
 def _get_current_datetime() -> str:
     """Return current Malaysia time as a human-readable string for the Agent."""
@@ -630,6 +631,19 @@ async def chat_stream_v1(request: Request, chat_request: ChatRequest):
         raise HTTPException(status_code=400, detail="Message is required")
 
     thread_id = chat_request.thread_id or str(uuid.uuid4())
+
+    # Scope guardrail — check the RAW user message BEFORE any landmark/RAG context is
+    # injected. (Injecting landmark info first would smuggle Penang keywords into the text
+    # and trick the guardrail into allowing off-topic requests like "write me a python loop".)
+    raw_message = user_message
+    is_allowed, rejection = check_scope(raw_message)
+    if not is_allowed:
+        async def _blocked_stream():
+            yield {"event": "token", "data": json.dumps({"type": "token", "content": rejection, "thread_id": thread_id})}
+            yield {"event": "done", "data": json.dumps({"type": "done", "content": "", "thread_id": thread_id})}
+        logger.info(f"[chat/stream] guardrail blocked off-topic query: '{raw_message[:60]}'")
+        return EventSourceResponse(_blocked_stream())
+
     intent = _classify_intent(user_message, has_itinerary=False)
 
     # RAG: only for actual questions, not greetings
