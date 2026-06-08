@@ -415,6 +415,20 @@ async def chat_v1(request: Request, chat_request: ChatRequest):
             raise HTTPException(status_code=400, detail="Message is required")
 
         thread_id = chat_request.thread_id or str(uuid.uuid4())
+
+        # Scope guardrail — check the RAW user message before any RAG/landmark context is
+        # injected (injecting Penang content first would smuggle keywords past the guardrail).
+        is_allowed, rejection = check_scope(user_message)
+        if not is_allowed:
+            logger.info(f"[chat] guardrail blocked off-topic query: '{user_message[:60]}'")
+            return ChatResponse(
+                response=rejection,
+                thread_id=thread_id,
+                intent=IntentType.GENERAL_QUESTION,
+                structured_itinerary=None,
+                success=True,
+            )
+
         intent = _classify_intent(user_message, has_itinerary=bool(chat_request.current_itinerary))
 
         logger.info(
