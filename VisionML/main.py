@@ -59,6 +59,40 @@ for landmark, classes in _LANDMARK_CLASSES.items():
     for cls in classes:
         POI_CLASS_MAP[cls] = classes
 
+# Keyword → landmark key. There are only 7 trainable landmarks, so we match the parent
+# landmark name (provided authoritatively by the admin DB) to its YOLO class group by a
+# distinctive keyword. This is robust to name variations ("Pagoda of Rama VI" vs
+# "pagoda_rama_vi") without a brittle exact-slug lookup.
+_LANDMARK_KEYWORDS = {
+    "fort cornwallis": "fort_cornwallis",
+    "guan yin": "guan_yin_teng",
+    "kapitan keling": "kapitan_keling_mosque",
+    "khoo kongsi": "khoo_kongsi",
+    "rama vi": "pagoda_rama_vi",
+    "queen victoria": "queen_victoria_memorial_clock",
+    "st george": "st_george_church",
+    "st. george": "st_george_church",
+}
+
+
+def resolve_landmark_key(name: str | None) -> str | None:
+    """Map a landmark/POI name to its canonical YOLO class key in POI_CLASS_MAP.
+
+    Tries, in order: (1) exact key match, (2) distinctive keyword match against the
+    7 known landmarks. Returns None if nothing matches (filtering is then skipped).
+    """
+    if not name:
+        return None
+    n = name.lower()
+    # 1. already a canonical key (landmark or class name)
+    if n in POI_CLASS_MAP:
+        return n
+    # 2. match by distinctive keyword in the (human-readable) name
+    for keyword, landmark in _LANDMARK_KEYWORDS.items():
+        if keyword in n:
+            return landmark
+    return None
+
 # Initialize App
 app = FastAPI(title="PenangLens VisionML", version="2.0")
 
@@ -191,10 +225,17 @@ def run_yolo_detection(pil_image: Image.Image, poi_id: str | None = None) -> tup
                 "color_idx": cls_idx % len(PALETTE),
             })
 
-    # Sequential validation: filter by POI-specific class list
-    if poi_id and poi_id in POI_CLASS_MAP:
-        valid_classes = [c.lower() for c in POI_CLASS_MAP[poi_id]]
+    # Sequential validation: filter by POI-specific class list.
+    # Resolve the (possibly human-readable) poi_id/name to a canonical landmark key first,
+    # so e.g. "pagoda_of_rama_vi" correctly maps to the "pagoda_rama_vi" class list.
+    landmark_key = resolve_landmark_key(poi_id)
+    if landmark_key and landmark_key in POI_CLASS_MAP:
+        valid_classes = [c.lower() for c in POI_CLASS_MAP[landmark_key]]
+        before = len(detections)
         detections = [d for d in detections if d["class"].lower() in valid_classes]
+        print(f"  🔎 Filter '{poi_id}' → landmark '{landmark_key}': {before} → {len(detections)} detections (allowed: {valid_classes})")
+    elif poi_id:
+        print(f"  ⚠️ No class filter for '{poi_id}' — landmark not in POI_CLASS_MAP, showing all detections")
 
     # Draw clean coloured bounding boxes (no labels)
     from PIL import ImageDraw
@@ -347,11 +388,11 @@ async def full_pipeline(image: UploadFile = File(...)):
             except Exception as e:
                 print(f"  ⚠️ Could not resolve POI name: {e}")
 
-        # Build filter key from name for YOLO class filtering
-        if poi_name:
-            filter_key = poi_name.lower().replace(" ", "_").replace("'", "").replace("-", "_")
+        # Build filter key: prefer the parent landmark name (authoritative DB link for a POI),
+        # else fall back to the POI's own name. resolve_landmark_key() handles name variations.
+        filter_key = parent_landmark_name or poi_name
 
-        # Stage 2: YOLO11 Detection (with POI-specific filtering using landmark name)
+        # Stage 2: YOLO11 Detection (filtered to the identified landmark's valid classes)
         detections, image_url = run_yolo_detection(pil_image, filter_key)
         t_yolo = time.time()
         print(f"  ⏱️ YOLO11 detect: {t_yolo - t_dino:.2f}s → {len(detections)} detections (filter: {filter_key})")
