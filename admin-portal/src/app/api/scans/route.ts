@@ -45,13 +45,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // poiId from the vision pipeline is a search-index id, which may NOT be a real
+    // PointOfInterest.id (FK). Only link it if it actually exists, else store null —
+    // otherwise the FK constraint throws and the whole scan (and its feedback) is lost.
+    let validPoiId: string | null = null;
+    if (poiId) {
+      const existingPoi = await prisma.pointOfInterest.findUnique({
+        where: { id: String(poiId) },
+        select: { id: true },
+      });
+      validPoiId = existingPoi?.id ?? null;
+    }
+
     const scan = await prisma.recognitionHistory.create({
       data: {
         userImageUrl: annotatedImageUrl || userImageUrl,
         userLatitude,
         userLongitude,
         aiDetails,
-        poiId: poiId || null,
+        poiId: validPoiId,
         userId: user.id,
       },
     });
