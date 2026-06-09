@@ -291,13 +291,13 @@ export default function LandmarkResultScreen() {
     return unsub;
   }, [navigation, hasChatted, chatRated]);
 
-  /** Continue the navigation the user was attempting when the rating modal popped up. */
-  const continueLeaving = () => {
+  /** Close the rating modal. If it was opened by a navigation attempt, resume that
+   *  navigation; if opened manually via the "Rate" button, just close it. */
+  const closeRatingModal = () => {
     setChatRatingModalVisible(false);
     const action = pendingLeaveAction.current;
     pendingLeaveAction.current = null;
-    if (action) (navigation as any).dispatch(action);
-    else router.back();
+    if (action) (navigation as any).dispatch(action); // resume the leave the user attempted
   };
 
   if (!scanData && !spotId) {
@@ -621,6 +621,20 @@ export default function LandmarkResultScreen() {
             ))}
           </ScrollView>
 
+          {hasChatted && !chatRated && (
+            <TouchableOpacity
+              style={styles.rateSessionBtn}
+              onPress={() => { setChatStars(0); setChatComment(''); setChatRatingModalVisible(true); }}
+            >
+              <Text style={styles.rateSessionText}>⭐ Rate this conversation</Text>
+            </TouchableOpacity>
+          )}
+          {chatRated && (
+            <View style={styles.rateSessionDone}>
+              <Text style={styles.rateSessionDoneText}>✓ Thanks for your feedback!</Text>
+            </View>
+          )}
+
           <View style={[styles.chatBar, { paddingBottom: Spacing.sm + insets.bottom }]}>
             <TextInput
               style={styles.chatInput}
@@ -640,7 +654,7 @@ export default function LandmarkResultScreen() {
       )}
 
       {/* Per-session chat rating modal — prompted when leaving after chatting */}
-      <Modal visible={chatRatingModalVisible} transparent animationType="fade" onRequestClose={continueLeaving}>
+      <Modal visible={chatRatingModalVisible} transparent animationType="fade" onRequestClose={closeRatingModal}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>How was this conversation?</Text>
@@ -656,7 +670,7 @@ export default function LandmarkResultScreen() {
             <TextInput style={styles.modalInput} placeholder="Optional comment..." placeholderTextColor={Colors.textMuted}
               value={chatComment} onChangeText={setChatComment} multiline />
             <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.modalCancel} onPress={continueLeaving}>
+              <TouchableOpacity style={styles.modalCancel} onPress={closeRatingModal}>
                 <Text style={{ color: Colors.textSecondary }}>Skip</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -665,7 +679,7 @@ export default function LandmarkResultScreen() {
                 onPress={async () => {
                   await submitChatRating(chatStars, chatComment.trim() || undefined);
                   setChatComment(''); setChatStars(0);
-                  continueLeaving();
+                  closeRatingModal();
                 }}>
                 <Text style={{ color: Colors.white, fontWeight: '700' }}>Submit</Text>
               </TouchableOpacity>
@@ -780,6 +794,10 @@ const styles = StyleSheet.create({
   suggestBtn: { backgroundColor: Colors.inputBg, borderRadius: Radius.full, paddingVertical: scale(6), paddingHorizontal: scale(12) },
   suggestText: { fontSize: scale(11), color: Colors.textPrimary, fontWeight: '500' },
 
+  rateSessionBtn: { marginHorizontal: Spacing.md, marginBottom: scale(6), backgroundColor: Colors.accentLight, borderRadius: Radius.full, paddingVertical: scale(9), alignItems: 'center', borderWidth: 1, borderColor: Colors.accent },
+  rateSessionText: { color: Colors.accentDark, fontWeight: '700', fontSize: scale(13) },
+  rateSessionDone: { marginHorizontal: Spacing.md, marginBottom: scale(6), alignItems: 'center', paddingVertical: scale(6) },
+  rateSessionDoneText: { color: Colors.success, fontWeight: '600', fontSize: scale(12) },
   chatBar: { flexDirection: 'row', padding: Spacing.sm, backgroundColor: Colors.white, borderTopWidth: 1, borderTopColor: Colors.border, gap: Spacing.sm },
   chatInput: { flex: 1, backgroundColor: Colors.inputBg, borderRadius: Radius.full, paddingHorizontal: Spacing.md, paddingVertical: scale(8), fontSize: scale(13), color: Colors.textPrimary },
   chatSend: { width: scale(36), height: scale(36), borderRadius: scale(18), backgroundColor: Colors.accent, justifyContent: 'center', alignItems: 'center' },

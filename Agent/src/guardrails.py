@@ -277,12 +277,31 @@ def llm_scope_check(message: str) -> Tuple[bool, str]:
         return True, ""
 
 
+def _strip_injected_prefixes(message: str) -> str:
+    """Remove app-injected tags so the guardrail judges the USER's actual words.
+
+    The mobile landmark chat prepends "[Landmark: <name>] " to the message. That landmark
+    name is a Penang keyword, which would trick the guardrail into allowing off-topic
+    requests (e.g. "[Landmark: Khoo Kongsi] write me a python loop"). Strip any leading
+    "[...]" tags before checking scope.
+    """
+    cleaned = message.strip()
+    # Drop one or more leading bracketed tags like "[Landmark: X]" or "[INSTRUCTION: ...]"
+    while cleaned.startswith("["):
+        end = cleaned.find("]")
+        if end == -1:
+            break
+        cleaned = cleaned[end + 1:].strip()
+    return cleaned or message
+
+
 def check_scope(message: str) -> Tuple[bool, str]:
     """Combined two-layer scope guardrail (use this from the agent).
 
     Layer 1 keyword check decides confidently in most cases (instant, free). Only when it
     is 'uncertain' does Layer 2 (the LLM classifier) run — so the extra LLM call is rare.
     """
+    message = _strip_injected_prefixes(message)
     verdict = _keyword_verdict(message)
     if verdict == "allow":
         return True, ""
