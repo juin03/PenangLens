@@ -21,19 +21,25 @@ export async function GET(request: NextRequest) {
     (prisma as any).chatFeedback.count({ where }),
   ]);
 
-  // For items with a threadId, fetch the full conversation thread (if it exists)
+  // Prefer the conversation transcript stored on the feedback record itself.
+  // Fall back to an itinerary thread (for itinerary-chat feedback) if not present.
   const enriched = await Promise.all(items.map(async (item: any) => {
-    if (!item.threadId) return { ...item, threadHistory: null };
-    const itinerary = await prisma.itinerary.findFirst({
-      where: { threadId: item.threadId },
-      include: {
-        chatHistory: {
-          select: { role: true, content: true, createdAt: true },
-          orderBy: { createdAt: 'asc' },
+    if (Array.isArray(item.conversation) && item.conversation.length > 0) {
+      return { ...item, threadHistory: item.conversation };
+    }
+    if (item.threadId) {
+      const itinerary = await prisma.itinerary.findFirst({
+        where: { threadId: item.threadId },
+        include: {
+          chatHistory: {
+            select: { role: true, content: true, createdAt: true },
+            orderBy: { createdAt: 'asc' },
+          },
         },
-      },
-    });
-    return { ...item, threadHistory: itinerary?.chatHistory ?? null };
+      });
+      return { ...item, threadHistory: itinerary?.chatHistory ?? null };
+    }
+    return { ...item, threadHistory: null };
   }));
 
   return NextResponse.json({ items: enriched, total, page, limit });

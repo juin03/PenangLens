@@ -64,9 +64,20 @@ export default function DiscoverScreen() {
       await fetch(`${BASE}/api/v1/feedback/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ rating: stars, comment: comment || undefined, context: 'Ask about Penang', threadId: chatThreadId, messageCount: userChatCount }),
+        body: JSON.stringify({ rating: stars, comment: comment || undefined, context: 'Ask about Penang', threadId: chatThreadId, messageCount: userChatCount, conversation: chatMessages.map(m => ({ role: m.role, content: m.content })) }),
       });
     } catch {}
+  };
+
+  /** Close the chat — but if the user chatted and hasn't rated, prompt for a rating first. */
+  const handleCloseChat = () => {
+    if (userChatCount > 0 && !chatRated) {
+      setChatStars(0);
+      setChatComment('');
+      setChatRatingModalVisible(true);
+    } else {
+      setChatOpen(false);
+    }
   };
 
   const sendChat = async () => {
@@ -303,7 +314,7 @@ export default function DiscoverScreen() {
       </TouchableOpacity>
 
       {/* Chat Modal */}
-      <Modal visible={chatOpen} animationType="slide" transparent onRequestClose={() => setChatOpen(false)}>
+      <Modal visible={chatOpen} animationType="slide" transparent onRequestClose={handleCloseChat}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
           <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' }}>
             <View style={{ flex: 1, marginTop: insets.top + 20, backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' }}>
@@ -321,7 +332,7 @@ export default function DiscoverScreen() {
                   }}>
                     <Text style={{ fontSize: 14, color: Colors.primary }}>Reset</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setChatOpen(false)}>
+                  <TouchableOpacity onPress={handleCloseChat}>
                     <Text style={{ fontSize: 22, color: '#94a3b8' }}>✕</Text>
                   </TouchableOpacity>
                 </View>
@@ -352,19 +363,6 @@ export default function DiscoverScreen() {
                   </View>
                 )}
               />
-              {/* Rate this conversation */}
-              {userChatCount > 0 && !chatRated && (
-                <TouchableOpacity
-                  style={{ marginHorizontal: 12, marginBottom: 6, backgroundColor: Colors.accentLight, borderRadius: 20, paddingVertical: 9, alignItems: 'center', borderWidth: 1, borderColor: Colors.accent }}
-                  onPress={() => { setChatStars(0); setChatComment(''); setChatRatingModalVisible(true); }}>
-                  <Text style={{ color: Colors.accentDark, fontWeight: '700', fontSize: scale(13) }}>⭐ Rate this conversation</Text>
-                </TouchableOpacity>
-              )}
-              {chatRated && (
-                <View style={{ marginHorizontal: 12, marginBottom: 6, alignItems: 'center', paddingVertical: 6 }}>
-                  <Text style={{ color: Colors.success, fontWeight: '600', fontSize: scale(12) }}>✓ Thanks for your feedback!</Text>
-                </View>
-              )}
               {/* Input */}
               <View style={{ flexDirection: 'row', padding: 12, borderTopWidth: 1, borderTopColor: Colors.border, paddingBottom: 12, gap: 8 }}>
                 <TextInput
@@ -409,13 +407,14 @@ export default function DiscoverScreen() {
               multiline
             />
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
-              <TouchableOpacity style={{ flex: 1, padding: 12, borderRadius: 10, alignItems: 'center', backgroundColor: '#f1f5f9' }} onPress={() => setChatRatingModalVisible(false)}>
+              <TouchableOpacity style={{ flex: 1, padding: 12, borderRadius: 10, alignItems: 'center', backgroundColor: '#f1f5f9' }}
+                onPress={() => { setChatRatingModalVisible(false); setChatOpen(false); }}>
                 <Text style={{ color: Colors.textSecondary }}>Skip</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={{ flex: 1, padding: 12, borderRadius: 10, alignItems: 'center', backgroundColor: Colors.primary, opacity: chatStars === 0 ? 0.5 : 1 }}
                 disabled={chatStars === 0}
-                onPress={async () => { await submitChatRating(chatStars, chatComment.trim() || undefined); setChatRatingModalVisible(false); }}>
+                onPress={async () => { await submitChatRating(chatStars, chatComment.trim() || undefined); setChatRatingModalVisible(false); setChatOpen(false); }}>
                 <Text style={{ color: Colors.white, fontWeight: '700' }}>Submit</Text>
               </TouchableOpacity>
             </View>

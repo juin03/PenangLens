@@ -4,7 +4,7 @@ import { verifyToken } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { rating, comment, context, threadId, messageCount } = body;
+  const { rating, comment, context, threadId, messageCount, conversation } = body;
 
   // Per-session rating: 1–5 stars
   const stars = Number(rating);
@@ -30,6 +30,7 @@ export async function POST(request: NextRequest) {
         context: context ? String(context) : null,
         threadId: threadId ?? null,
         messageCount: messageCount != null ? Number(messageCount) : null,
+        conversation: Array.isArray(conversation) ? conversation : undefined,
         status: 'pending',
         userId,
       },
