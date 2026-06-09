@@ -655,9 +655,13 @@ def create_graph():
             "block_reason": "",
         }
 
-    def agent_node(state: AgentState) -> dict:
+    def agent_node(state: AgentState, config: dict = None) -> dict:
         """The main agent node that calls the LLM."""
         messages = state["messages"]
+
+        # Thread id for LangSmith conversation grouping (from the graph's configurable).
+        thread_id = (config or {}).get("configurable", {}).get("thread_id")
+        ls_config = {"metadata": {"thread_id": thread_id}} if thread_id else {}
 
         # Build system prompt with preferences
         prefs_text = state.get("user_preferences_text", "")
@@ -684,7 +688,7 @@ def create_graph():
         for attempt in range(2):
             try:
                 llm_with_tools = _create_llm().bind_tools(tools)
-                response = llm_with_tools.invoke(fixed)
+                response = llm_with_tools.invoke(fixed, config=ls_config)
                 break
             except Exception as exc:
                 last_error = exc

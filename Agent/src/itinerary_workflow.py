@@ -1428,12 +1428,44 @@ def run_itinerary_workflow(
     travel_mode: str = "walking",
     start_date: Optional[str] = None,
     status_callback=None,
+    thread_id: Optional[str] = None,
 ) -> ItineraryData:
     """
     Run the full itinerary generation workflow synchronously.
     Returns ItineraryData or raises on failure.
     status_callback: optional callable(message: str) for real-time progress updates.
+    thread_id: optional id to group all this run's LLM traces into one LangSmith thread.
     """
+    # Group every LLM call in this workflow under one LangSmith thread, if a thread_id
+    # is provided. tracing_context applies the metadata to all nested .invoke() calls.
+    if thread_id:
+        try:
+            from langsmith.run_helpers import tracing_context
+            ctx = tracing_context(metadata={"thread_id": thread_id})
+        except Exception:
+            from contextlib import nullcontext
+            ctx = nullcontext()
+    else:
+        from contextlib import nullcontext
+        ctx = nullcontext()
+
+    with ctx:
+        return _run_itinerary_workflow_impl(
+            description, interests, start_time, end_time,
+            start_location, travel_mode, start_date, status_callback,
+        )
+
+
+def _run_itinerary_workflow_impl(
+    description: str,
+    interests: list[str],
+    start_time: str,
+    end_time: str,
+    start_location: str,
+    travel_mode: str,
+    start_date: Optional[str],
+    status_callback,
+) -> ItineraryData:
     def _status(msg: str):
         if status_callback:
             status_callback(msg)

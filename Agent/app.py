@@ -593,6 +593,7 @@ async def generate_itinerary(request: Request, gen_request: GenerateRequest):
                 start_location=gen_request.start_location,
                 travel_mode=gen_request.travel_mode,
                 start_date=gen_request.start_date,
+                thread_id=thread_id,
             )
         )
 
@@ -803,6 +804,7 @@ async def generate_itinerary_stream(request: Request, gen_request: GenerateReque
                     travel_mode=gen_request.travel_mode,
                     start_date=gen_request.start_date,
                     status_callback=status_callback,
+                    thread_id=thread_id,
                 )
             )
 
