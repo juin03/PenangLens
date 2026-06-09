@@ -102,26 +102,30 @@ export default function ChatFeedbackPage() {
                   </div>
                 </div>
 
-                {item.comment && (
-                  <div className={s.section}>
-                    <div className={s.sectionTitle}>💬 Comment</div>
-                    <div className={s.promptBox}>{item.comment}</div>
-                  </div>
-                )}
+                {(item.comment || (item.threadHistory && item.threadHistory.length > 0)) && (
+                  <div className={s.cardBody}>
+                    {item.comment && (
+                      <div className={s.section}>
+                        <div className={s.sectionTitle}>💬 Comment</div>
+                        <div className={s.promptBox}>{item.comment}</div>
+                      </div>
+                    )}
 
-                {item.threadId && item.threadHistory && item.threadHistory.length > 0 && (
-                  <div className={s.section}>
-                    <button className={s.filterBtn} onClick={() => toggleThread(item.id)}>
-                      {isThreadOpen ? '▾ Hide conversation' : '› View full conversation'}
-                    </button>
-                    {isThreadOpen && (
-                      <div className={s.chatWrap} style={{ marginTop: 8 }}>
-                        {item.threadHistory.map((m, i) => (
-                          <div key={i} className={`${s.bubble} ${m.role === 'user' ? s.bubbleUser : s.bubbleAI}`}>
-                            <span className={s.bubbleLabel}>{m.role === 'user' ? 'User' : 'AI'}:</span>
-                            {m.content.length > 400 ? m.content.slice(0, 400) + '…' : m.content}
+                    {item.threadHistory && item.threadHistory.length > 0 && (
+                      <div className={s.section} style={{ marginBottom: 0 }}>
+                        <button className={s.filterBtn} onClick={() => toggleThread(item.id)}>
+                          {isThreadOpen ? '▾ Hide conversation' : '› View full conversation'}
+                        </button>
+                        {isThreadOpen && (
+                          <div className={s.chatWrap} style={{ marginTop: 10 }}>
+                            {item.threadHistory.map((m, i) => (
+                              <div key={i} className={`${s.bubble} ${m.role === 'user' ? s.bubbleUser : s.bubbleAI}`}>
+                                <span className={s.bubbleLabel}>{m.role === 'user' ? 'User' : 'AI'}:</span>
+                                {m.content.length > 400 ? m.content.slice(0, 400) + '…' : m.content}
+                              </div>
+                            ))}
                           </div>
-                        ))}
+                        )}
                       </div>
                     )}
                   </div>

@@ -229,6 +229,17 @@ def _keyword_verdict(message: str) -> str:
     if any(kw in message_lower for kw in PENANG_KEYWORDS):
         return "allow"
 
+    # Common conversational questions about a place/landmark (incl. the app's suggested
+    # prompts) — valid in chat where there's already a landmark/Penang context.
+    landmark_question_phrases = [
+        "fun fact", "who built", "why is it famous", "why is this famous",
+        "when was it built", "when was this built", "how old", "what style",
+        "best time to visit", "tell me about", "what is special", "what's special",
+        "interesting", "significance", "story behind", "what can i see", "what to see",
+    ]
+    if any(p in message_lower for p in landmark_question_phrases):
+        return "allow"
+
     if any(kw in message_lower for kw in OFF_TOPIC_KEYWORDS):
         return "block"
 
@@ -314,12 +325,20 @@ def check_scope(message: str) -> Tuple[bool, str]:
     Layer 1 keyword check decides confidently in most cases (instant, free). Only when it
     is 'uncertain' does Layer 2 (the LLM classifier) run — so the extra LLM call is rare.
     """
+    # A "[Landmark: ...]" prefix means the user is in landmark chat asking about THAT
+    # landmark — short generic questions ("tell me a fun fact", "who built this") are valid.
+    in_landmark_chat = message.strip().lower().startswith("[landmark:")
+
     message = _strip_injected_prefixes(message)
     verdict = _keyword_verdict(message)
     if verdict == "allow":
         return True, ""
     if verdict == "block":
         return False, SCOPE_REJECTION_MESSAGE
+
+    # uncertain. In landmark chat, the landmark is the context, so allow generic questions.
+    if in_landmark_chat:
+        return True, ""
 
     # uncertain → let the LLM decide (if enabled), else fall back to lenient allow
     if LLM_GUARDRAIL_ENABLED:
