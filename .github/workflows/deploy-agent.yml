@@ -17,4 +17,26 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
       - run: az acr build --registry penanglenscr --image agent:${{ github.sha }} ./Agent
-      - run: az containerapp update --name agent --resource-group rg-penanglens --image penanglenscr.azurecr.io/agent:${{ github.sha }} --min-replicas 1
+
+      # Store the LangSmith API key as a Container App secret FIRST, so the env var
+      # below can reference it. (Secret must exist before it is referenced.)
+      - name: Set LangSmith secret on the Container App
+        env:
+          LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+        run: |
+          az containerapp secret set \
+            --name agent \
+            --resource-group rg-penanglens \
+            --secrets "langchain-api-key=$LANGCHAIN_API_KEY"
+
+      - name: Deploy image + LangSmith tracing env vars
+        run: |
+          az containerapp update \
+            --name agent \
+            --resource-group rg-penanglens \
+            --image penanglenscr.azurecr.io/agent:${{ github.sha }} \
+            --min-replicas 1 \
+            --set-env-vars \
+              "LANGCHAIN_TRACING_V2=true" \
+              "LANGCHAIN_PROJECT=penang-lens-agent" \
+              "LANGCHAIN_API_KEY=secretref:langchain-api-key"
