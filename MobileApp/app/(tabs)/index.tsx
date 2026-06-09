@@ -12,7 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { streamChat } from '@/api/streaming';
 import { MarkdownText } from '@/components/MarkdownText';
 import { Colors, Radius, Spacing, scale, SCREEN_WIDTH } from '@/constants/theme';
-import { API_BASE_URL } from '@/api/client';
+import { API_BASE_URL, getToken } from '@/api/client';
 
 // Derive the BFF base URL from the shared client (single source of truth for LAN IP)
 const BFF_BASE = API_BASE_URL.replace('/api/v1', '');
@@ -49,6 +49,25 @@ export default function DiscoverScreen() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatThreadId, setChatThreadId] = useState<string | undefined>();
   const chatListRef = useRef<FlatList>(null);
+  // Per-session chat rating (1–5 stars)
+  const [chatRated, setChatRated] = useState(false);
+  const [chatRatingModalVisible, setChatRatingModalVisible] = useState(false);
+  const [chatStars, setChatStars] = useState(0);
+  const [chatComment, setChatComment] = useState('');
+  const userChatCount = chatMessages.filter(m => m.role === 'user').length;
+
+  const submitChatRating = async (stars: number, comment?: string) => {
+    setChatRated(true);
+    try {
+      const BASE = API_BASE_URL.replace('/api/v1', '');
+      const token = await getToken();
+      await fetch(`${BASE}/api/v1/feedback/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ rating: stars, comment: comment || undefined, context: 'Ask about Penang', threadId: chatThreadId, messageCount: userChatCount }),
+      });
+    } catch {}
+  };
 
   const sendChat = async () => {
     const msg = chatInput.trim();
@@ -298,6 +317,7 @@ export default function DiscoverScreen() {
                   <TouchableOpacity onPress={() => {
                     setChatMessages([{ role: 'assistant', content: 'Hi! Ask me anything about Penang — places to visit, food, history, tips 🌴' }]);
                     setChatThreadId(undefined);
+                    setChatRated(false);
                   }}>
                     <Text style={{ fontSize: 14, color: Colors.primary }}>Reset</Text>
                   </TouchableOpacity>
@@ -332,6 +352,19 @@ export default function DiscoverScreen() {
                   </View>
                 )}
               />
+              {/* Rate this conversation */}
+              {userChatCount > 0 && !chatRated && (
+                <TouchableOpacity
+                  style={{ marginHorizontal: 12, marginBottom: 6, backgroundColor: Colors.accentLight, borderRadius: 20, paddingVertical: 9, alignItems: 'center', borderWidth: 1, borderColor: Colors.accent }}
+                  onPress={() => { setChatStars(0); setChatComment(''); setChatRatingModalVisible(true); }}>
+                  <Text style={{ color: Colors.accentDark, fontWeight: '700', fontSize: scale(13) }}>⭐ Rate this conversation</Text>
+                </TouchableOpacity>
+              )}
+              {chatRated && (
+                <View style={{ marginHorizontal: 12, marginBottom: 6, alignItems: 'center', paddingVertical: 6 }}>
+                  <Text style={{ color: Colors.success, fontWeight: '600', fontSize: scale(12) }}>✓ Thanks for your feedback!</Text>
+                </View>
+              )}
               {/* Input */}
               <View style={{ flexDirection: 'row', padding: 12, borderTopWidth: 1, borderTopColor: Colors.border, paddingBottom: 12, gap: 8 }}>
                 <TextInput
@@ -353,6 +386,41 @@ export default function DiscoverScreen() {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Chat rating modal */}
+      <Modal visible={chatRatingModalVisible} transparent animationType="fade" onRequestClose={() => setChatRatingModalVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 20 }}>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center' }}>How was this conversation?</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginVertical: 14 }}>
+              {[1, 2, 3, 4, 5].map(star => (
+                <TouchableOpacity key={star} onPress={() => setChatStars(star)}>
+                  <Text style={{ fontSize: 32, color: star <= chatStars ? '#f59e0b' : Colors.border }}>{star <= chatStars ? '★' : '☆'}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TextInput
+              style={{ backgroundColor: '#f1f5f9', borderRadius: 10, padding: 12, fontSize: scale(13), minHeight: 60, textAlignVertical: 'top' }}
+              placeholder="Optional comment..."
+              placeholderTextColor={Colors.textMuted}
+              value={chatComment}
+              onChangeText={setChatComment}
+              multiline
+            />
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+              <TouchableOpacity style={{ flex: 1, padding: 12, borderRadius: 10, alignItems: 'center', backgroundColor: '#f1f5f9' }} onPress={() => setChatRatingModalVisible(false)}>
+                <Text style={{ color: Colors.textSecondary }}>Skip</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, padding: 12, borderRadius: 10, alignItems: 'center', backgroundColor: Colors.primary, opacity: chatStars === 0 ? 0.5 : 1 }}
+                disabled={chatStars === 0}
+                onPress={async () => { await submitChatRating(chatStars, chatComment.trim() || undefined); setChatRatingModalVisible(false); }}>
+                <Text style={{ color: Colors.white, fontWeight: '700' }}>Submit</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
     </View>
   );
