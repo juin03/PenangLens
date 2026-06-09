@@ -15,7 +15,14 @@ jobs:
           node-version: 20
       - run: npm ci
         working-directory: MobileApp
-      - run: npx eas-cli update --branch preview --message "${{ github.event.head_commit.message }}" --platform android --non-interactive
+      - name: Publish OTA update
         working-directory: MobileApp
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          # Pass the commit message via env (not direct ${{ }} interpolation) so quotes,
+          # newlines, or other shell metacharacters in it cannot break the command.
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          # Use only the first line of the commit message, capped to a safe length.
+          MSG="$(printf '%s' "$COMMIT_MSG" | head -n1 | cut -c1-200)"
+          npx eas-cli update --branch preview --message "$MSG" --platform android --non-interactive
