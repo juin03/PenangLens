@@ -45,8 +45,16 @@ PENANG_KEYWORDS = {
     "fort cornwallis", "kek lok si", "penang hill", "clan jetties",
     "khoo kongsi", "cheong fatt tze", "armenian street", "love lane",
     "lebuh chulia", "lebuh pantai", "komtar", "penang bridge",
-    "street art", "mural", "hawker", "char kway teow", "cendol",
-    "laksa", "nasi kandar", "rojak",
+    "street art", "mural", "hawker", "char kway teow", "char koay teow",
+    "cendol", "chendul", "chendol", "laksa", "nasi kandar", "rojak",
+    "hokkien mee", "curry mee", "satay", "dim sum", "kuih", "popiah",
+    "ice kacang", "kaya", "roti", "mee goreng", "wan tan mee", "dumpling",
+    # Architectural / heritage feature terms (asked about in landmark chat)
+    "burmese", "thai tier", "chinese base", "onion dome", "minaret",
+    "pagoda", "spire", "dome", "cupola", "swallowtail", "dragon pillar",
+    "guardian lion", "clock tower", "lighthouse", "steeple", "portico",
+    "arch", "tier", "mosque", "church", "shrine", "clan", "kongsi",
+    "architecture", "carving", "facade", "roof", "pillar", "statue",
     # General travel terms (allowed when no other destination is specified)
     "itinerary", "tour", "travel plan", "walking tour", "food tour",
     "heritage", "temple", "beach", "museum", "restaurant", "cafe",
@@ -259,11 +267,16 @@ def llm_scope_check(message: str) -> Tuple[bool, str]:
             max_tokens=3,
         )
         system = (
-            "You are a scope classifier for a Penang (Malaysia) travel assistant. "
-            "Decide if the user's message is related to travelling, eating, sightseeing, "
-            "landmarks, culture, or planning a trip in Penang. General-knowledge questions, "
-            "coding, math, essays, or other cities/countries are OUT of scope. "
-            "Reply with exactly one word: YES (in scope) or NO (out of scope)."
+            "You are a lenient task classifier for PenangLens — a travel, heritage, and "
+            "architecture assistant. The assistant answers questions about: travel/food/"
+            "culture/history (especially Penang), landmarks and temples/mosques/churches, "
+            "and ANY architectural or heritage feature in general (e.g. 'onion dome', "
+            "'minaret', 'burmese tier', 'flying buttress', 'pagoda') — these are core app "
+            "features even if not specific to Penang. "
+            "Answer NO **only** if the message is CLEARLY a different task the app is not for "
+            "— such as writing code, solving math, writing essays/emails, or general trivia "
+            "unrelated to travel, food, culture, history, or architecture. "
+            "When in doubt, answer YES. Reply with exactly one word: YES or NO."
         )
         resp = llm.invoke([SystemMessage(content=system), HumanMessage(content=message)])
         verdict = (resp.content or "").strip().upper()
