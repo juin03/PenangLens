@@ -35,7 +35,7 @@ jobs:
             --name agent \
             --resource-group rg-penanglens \
             --image penanglenscr.azurecr.io/agent:${{ github.sha }} \
-            --min-replicas 1 \
+            --min-replicas 0 \
             --set-env-vars \
               "LANGCHAIN_TRACING_V2=true" \
               "LANGCHAIN_PROJECT=penang-lens-agent" \
