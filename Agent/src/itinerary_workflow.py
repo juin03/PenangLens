@@ -508,53 +508,99 @@ def _haversine(lat1, lng1, lat2, lng2) -> float:
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-def travel_time_node(state: WorkflowState) -> dict:
-    """Fetch real travel times via Distance Matrix API."""
-    logger.info("[travel_time_node] starting — fetching Distance Matrix")
-    order = state.get("optimized_order", [])
-    travel_mode = state["travel_mode"]
-    segments = {}
+# Cache of Distance Matrix results keyed by (origin_query, dest_query, mode).
+# The workflow calls for travel times 2-3x per generation (initial, post-validate,
+# post-refine) with mostly identical pairs — without this every re-run re-bills.
+_travel_cache: dict[tuple[str, str, str], dict] = {}
+_TRAVEL_CACHE_MAX = 4096
 
-    if len(order) < 2:
-        return {"travel_segments": segments}
+
+def _place_query(name: str, lookup: dict) -> str:
+    """Prefer exact coordinates over name strings for Distance Matrix queries —
+    avoids server-side geocoding picking a same-named place elsewhere."""
+    c = lookup.get(name) or {}
+    if c.get("lat") and c.get("lng"):
+        return f"{c['lat']},{c['lng']}"
+    return f"{name}, Penang, Malaysia"
+
+
+def _fetch_travel_segments(
+    pairs: list[tuple[str, str]],
+    travel_mode: str,
+    cand_lookup: Optional[dict] = None,
+    default_min: int = 15,
+) -> dict:
+    """
+    Fetch travel times for consecutive stop pairs via Distance Matrix.
+
+    Issues one 1x1 request per pair (in parallel). Distance Matrix bills PER ELEMENT
+    (origins x destinations), so a single batched call with all origins and all
+    destinations bills (N-1)^2 elements while only the diagonal is used — N-1
+    individual requests cost 1/(N-1) of that. Also caps out: a batched grid breaks
+    entirely past ~11 stops (100-element request limit).
+
+    Returns {f"{origin}->{dest}": {"duration_min": int, "distance_text": str}}.
+    """
+    segments = {}
+    if not pairs:
+        return segments
 
     api_key = os.getenv("GOOGLE_MAPS_API_KEY")
-    pairs = [(order[i], order[i + 1]) for i in range(len(order) - 1)]
+    if not api_key or api_key == "your_google_maps_api_key_here":
+        return {f"{o}->{d}": {"duration_min": default_min, "distance_text": ""} for o, d in pairs}
 
-    if api_key and api_key != "your_google_maps_api_key_here":
+    if len(_travel_cache) > _TRAVEL_CACHE_MAX:
+        _travel_cache.clear()
+
+    lookup = cand_lookup or {}
+    import requests as _req
+    from concurrent.futures import ThreadPoolExecutor
+
+    def fetch_one(pair: tuple[str, str]) -> tuple[str, dict]:
+        origin, dest = pair
+        key = f"{origin}->{dest}"
+        origin_q = _place_query(origin, lookup)
+        dest_q = _place_query(dest, lookup)
+        cache_key = (origin_q, dest_q, travel_mode)
+        cached = _travel_cache.get(cache_key)
+        if cached:
+            return key, cached
         try:
-            import requests as _req
-            origins = "|".join(f"{o}, Penang, Malaysia" for o, _ in pairs)
-            destinations = "|".join(f"{d}, Penang, Malaysia" for _, d in pairs)
             resp = _req.get(
                 "https://maps.googleapis.com/maps/api/distancematrix/json",
-                params={"origins": origins, "destinations": destinations,
+                params={"origins": origin_q, "destinations": dest_q,
                         "mode": travel_mode, "key": api_key},
                 timeout=15,
             )
             resp.raise_for_status()
-            data = resp.json()
-
-            if data["status"] == "OK":
-                for i, (origin, dest) in enumerate(pairs):
-                    key = f"{origin}->{dest}"
-                    try:
-                        element = data["rows"][i]["elements"][i]
-                        if element["status"] == "OK":
-                            duration_min = element["duration"]["value"] // 60
-                            distance_text = element["distance"]["text"]
-                        else:
-                            duration_min, distance_text = 15, ""
-                    except Exception:
-                        duration_min, distance_text = 15, ""
-                    segments[key] = {"duration_min": duration_min, "distance_text": distance_text}
-                    logger.info(f"travel_time_node: {key} = {duration_min} min")
-                return {"travel_segments": segments}
+            el = resp.json()["rows"][0]["elements"][0]
+            if el["status"] == "OK":
+                seg = {"duration_min": el["duration"]["value"] // 60,
+                       "distance_text": el["distance"]["text"]}
+                _travel_cache[cache_key] = seg
+                return key, seg
         except Exception as e:
-            logger.warning(f"travel_time_node: batch call failed ({e}), falling back to defaults")
+            logger.warning(f"_fetch_travel_segments: {key} failed ({e}), using {default_min}min default")
+        return key, {"duration_min": default_min, "distance_text": ""}
 
-    for origin, dest in pairs:
-        segments[f"{origin}->{dest}"] = {"duration_min": 15, "distance_text": ""}
+    with ThreadPoolExecutor(max_workers=min(8, len(pairs))) as pool:
+        for key, seg in pool.map(fetch_one, pairs):
+            segments[key] = seg
+            logger.info(f"travel: {key} = {seg['duration_min']} min")
+    return segments
+
+
+def travel_time_node(state: WorkflowState) -> dict:
+    """Fetch real travel times via Distance Matrix API (one 1x1 request per pair)."""
+    logger.info("[travel_time_node] starting — fetching travel times")
+    order = state.get("optimized_order", [])
+
+    if len(order) < 2:
+        return {"travel_segments": {}}
+
+    pairs = [(order[i], order[i + 1]) for i in range(len(order) - 1)]
+    cand_lookup = {c["name"]: c for c in state.get("candidates", [])}
+    segments = _fetch_travel_segments(pairs, state["travel_mode"], cand_lookup)
     return {"travel_segments": segments}
 
 
@@ -760,31 +806,11 @@ def validate_node(state: WorkflowState) -> dict:
     if len(order) != original_count:
         logger.info(f"validate_node: {original_count} → {len(order)} stops after validation")
 
-        # Recalculate travel times for new consecutive pairs
+        # Recalculate travel times for new consecutive pairs (cached pairs are free)
         new_segments = {}
-        api_key = os.getenv("GOOGLE_MAPS_API_KEY")
-        if len(order) >= 2 and api_key:
+        if len(order) >= 2:
             pairs = [(order[i], order[i+1]) for i in range(len(order)-1)]
-            try:
-                import requests as _req
-                origins = "|".join(f"{o}, Penang, Malaysia" for o, _ in pairs)
-                destinations = "|".join(f"{d}, Penang, Malaysia" for _, d in pairs)
-                resp = _req.get("https://maps.googleapis.com/maps/api/distancematrix/json",
-                    params={"origins": origins, "destinations": destinations, "mode": travel_mode, "key": api_key}, timeout=15)
-                data = resp.json()
-                if data.get("status") == "OK":
-                    for i, (o, d) in enumerate(pairs):
-                        try:
-                            el = data["rows"][i]["elements"][i]
-                            dur = el["duration"]["value"] // 60 if el["status"] == "OK" else 15
-                            dist = el["distance"]["text"] if el["status"] == "OK" else ""
-                        except Exception:
-                            dur, dist = 15, ""
-                        new_segments[f"{o}->{d}"] = {"duration_min": dur, "distance_text": dist}
-                        logger.info(f"validate_node: recalculated {o}->{d} = {dur} min")
-            except Exception:
-                for o, d in pairs:
-                    new_segments[f"{o}->{d}"] = {"duration_min": 15, "distance_text": ""}
+            new_segments = _fetch_travel_segments(pairs, travel_mode, cand_lookup)
         segments = new_segments
     else:
         logger.info(f"validate_node: all {len(order)} stops passed ✓")
@@ -1096,13 +1122,11 @@ Call tools first if you need to add stops, then call "done" with the complete li
                 origin = args.get("origin", "")
                 dest = args.get("destination", "")
                 try:
-                    r = _req.get(
-                        "https://maps.googleapis.com/maps/api/distancematrix/json",
-                        params={"origins": f"{origin}, Penang", "destinations": f"{dest}, Penang",
-                                "mode": travel_mode, "key": api_key}, timeout=10
-                    )
-                    el = r.json()["rows"][0]["elements"][0]
-                    mins = el["duration"]["value"] // 60 if el["status"] == "OK" else 15
+                    seg = _fetch_travel_segments(
+                        [(origin, dest)], travel_mode,
+                        {c["name"]: c for c in candidates},
+                    ).get(f"{origin}->{dest}", {})
+                    mins = seg.get("duration_min", 15)
                     result_text = f"{origin} → {dest}: {mins} min by {travel_mode}"
                 except Exception as e:
                     result_text = f"Error: {e}"
@@ -2142,36 +2166,12 @@ Return ONLY JSON: {{"name": "Real Place Name", "alternatives": ["Alt1", "Alt2"],
                 "Try a different place or time."
             )
 
-    # Step 3: Recalculate travel times between stops using Distance Matrix
+    # Step 3: Recalculate travel times between stops (one Distance Matrix element per pair)
     segments = {}
     if len(stops_list) >= 2:
-        api_key_maps = os.getenv("GOOGLE_MAPS_API_KEY")
         pairs = [(stops_list[i]["name"], stops_list[i+1]["name"]) for i in range(len(stops_list)-1)]
-        try:
-            import requests as _req
-            origins = "|".join(f"{o}, Penang, Malaysia" for o, _ in pairs)
-            destinations = "|".join(f"{d}, Penang, Malaysia" for _, d in pairs)
-            resp = _req.get(
-                "https://maps.googleapis.com/maps/api/distancematrix/json",
-                params={"origins": origins, "destinations": destinations,
-                        "mode": travel_mode, "key": api_key_maps},
-                timeout=15,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            if data["status"] == "OK":
-                for i, (o, d) in enumerate(pairs):
-                    try:
-                        el = data["rows"][i]["elements"][i]
-                        segments[f"{o}->{d}"] = {
-                            "duration_min": el["duration"]["value"] // 60 if el["status"] == "OK" else 10,
-                            "distance_text": el["distance"]["text"] if el["status"] == "OK" else "",
-                        }
-                    except Exception:
-                        segments[f"{o}->{d}"] = {"duration_min": 10, "distance_text": ""}
-        except Exception:
-            for o, d in pairs:
-                segments[f"{o}->{d}"] = {"duration_min": 10, "distance_text": ""}
+        stops_lookup = {s["name"]: s for s in stops_list}
+        segments = _fetch_travel_segments(pairs, travel_mode, stops_lookup, default_min=10)
 
     # Step 4: Recalculate arrival/departure times and rebuild stops
     current_min = _time_to_min(start_time)
