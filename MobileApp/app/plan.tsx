@@ -8,11 +8,6 @@ import { Colors, Radius, Spacing, scale, Shadow } from '@/constants/theme';
 import { saveItinerary, API_BASE_URL, getToken } from '@/api/client';
 import { INTEREST_TAGS } from '@/constants/taxonomy';
 
-// Client-side key for Places Autocomplete. Set in MobileApp/.env for local dev and as
-// an EAS environment variable for builds/updates. Restrict it in Google Cloud Console
-// (Places API only + Android app restriction) — client keys are always extractable.
-const MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
-
 const toMinutes = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 const toTime = (m: number) => { const h = Math.floor(m / 60); const mm = m % 60; return `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; };
 
@@ -30,17 +25,30 @@ export default function PlanTripScreen() {
   const [locationInput, setLocationInput] = useState('');
   const [locationSuggestions, setLocationSuggestions] = useState<{ description: string; place_id: string }[]>([]);
   const locationDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Google Places session token: one token per search session (keystrokes + the final
+  // details call) so Google bills it as a single session instead of per keystroke.
+  const placesSession = useRef<string | null>(null);
 
+  const getPlacesSession = () => {
+    if (!placesSession.current) {
+      placesSession.current = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    }
+    return placesSession.current;
+  };
+
+  // Autocomplete goes through the BFF proxy (server-side key + user auth) — the app
+  // ships no Places-capable API key.
   const fetchSuggestions = (text: string) => {
     setLocationInput(text);
     if (locationDebounce.current) clearTimeout(locationDebounce.current);
     if (text.length < 2) { setLocationSuggestions([]); return; }
     locationDebounce.current = setTimeout(async () => {
       try {
-        const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(text)}&components=country:my&key=${MAPS_API_KEY}`;
-        const res = await fetch(url);
+        const token = await getToken();
+        const url = `${API_BASE_URL}/places/autocomplete?input=${encodeURIComponent(text)}&sessiontoken=${getPlacesSession()}`;
+        const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
         const data = await res.json();
-        setLocationSuggestions(data.predictions?.slice(0, 5) ?? []);
+        setLocationSuggestions(data.predictions ?? []);
       } catch { setLocationSuggestions([]); }
     }, 300);
   };
@@ -49,12 +57,14 @@ export default function PlanTripScreen() {
     setLocationInput(item.description);
     setLocationSuggestions([]);
     try {
-      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${item.place_id}&fields=geometry&key=${MAPS_API_KEY}`;
-      const res = await fetch(url);
+      const token = await getToken();
+      const url = `${API_BASE_URL}/places/details?place_id=${encodeURIComponent(item.place_id)}&sessiontoken=${getPlacesSession()}`;
+      const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
       const data = await res.json();
-      const loc = data.result?.geometry?.location;
+      const loc = data.location;
       setStartLocation(loc ? `${loc.lat},${loc.lng}` : item.description);
     } catch { setStartLocation(item.description); }
+    placesSession.current = null; // details call ends the billing session
   };
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
