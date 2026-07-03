@@ -1262,9 +1262,10 @@ def format_node(state: WorkflowState) -> dict:
             from urllib.parse import quote as _quote
             maps_url = f"https://www.google.com/maps/search/?api=1&query={_quote(name)}&query_place_id={place_id}"
         
-        # Get photo from cached data
-        if cand_info.get("photo_reference") and api_key:
-            photo_url = f"https://places.googleapis.com/v1/{cand_info['photo_reference']}/media?maxHeightPx=400&key={api_key}"
+        # Get photo from cached data (proxied so the API key is not exposed to clients)
+        if cand_info.get("photo_reference"):
+            from .tools import build_photo_url
+            photo_url = build_photo_url(cand_info["photo_reference"], api_key)
 
         # Calculate arrival and departure times
         arrival_time = _min_to_time(current_time_min)
@@ -2063,8 +2064,9 @@ Return ONLY JSON: {{"name": "Real Place Name", "alternatives": ["Alt1", "Alt2"],
                 return {"response": f"'{details['name']}' is already in your itinerary. Did you mean to add it again?", "structured_itinerary": current_itinerary}
 
             photo_url = None
-            if details.get("photo_reference") and api_key:
-                photo_url = f"https://places.googleapis.com/v1/{details['photo_reference']}/media?maxHeightPx=400&key={api_key}"
+            if details.get("photo_reference"):
+                from .tools import build_photo_url
+                photo_url = build_photo_url(details["photo_reference"], api_key)
 
             # Enforce minimum durations for major attractions
             visit_dur = suggestion.get("visit_duration_min", 60)

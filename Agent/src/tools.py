@@ -101,6 +101,24 @@ def clear_search_cache() -> None:
     _search_cache.clear()
 
 
+def build_photo_url(photo_ref: str, api_key: str) -> Optional[str]:
+    """
+    Build a client-safe URL for a Places photo resource name.
+
+    When PHOTO_PROXY_BASE is set (the public admin-portal URL), photos are served
+    through the BFF's /api/v1/photo proxy so the server API key is never exposed to
+    clients. Falls back to the direct Google URL (key embedded) for local dev only.
+    """
+    if not photo_ref:
+        return None
+    proxy_base = os.getenv("PHOTO_PROXY_BASE", "").rstrip("/")
+    if proxy_base:
+        return f"{proxy_base}/api/v1/photo?ref={quote(photo_ref, safe='')}"
+    if not api_key:
+        return None
+    return f"https://places.googleapis.com/v1/{photo_ref}/media?maxHeightPx=400&key={api_key}"
+
+
 def _estimate_duration(types: list) -> int:
     """Estimate visit duration in minutes from Google place types."""
     for t in types:
