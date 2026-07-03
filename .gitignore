@@ -3,6 +3,9 @@
 .venv/
 __pycache__/
 
+# Secrets / credentials — never commit
+azure-credentials.json
+
 # VisionML Specific
 VisionML/data_prep/Dataset/
 VisionML/data_prep/all/
@@ -10,16 +13,15 @@ VisionML/models/results/
 VisionML/models/full_finetuning/
 VisionML/models/partial_finetuning/
 VisionML/uploads/
-# *.pt
+*.webp
 
 # Agent Specific
 Agent/node_modules/
 Agent/dist/
-*.md
 
-agent.json
-visionsleep.json
-*.webpazure-credentials.json
+# Local planning / working docs (root-level only — service READMEs stay tracked)
+/*.md
+!/README.md
+read/
 /documentation
-# !VisionML/models/best.pt
-azure-credentials.json
+visionsleep.json
