@@ -8,9 +8,11 @@ const prisma = new PrismaClient();
 const AGENT_BASE_URL = process.env.AGENT_BASE_URL || 'http://127.0.0.1:8000';
 
 async function indexSpot(spot: object) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (process.env.AGENT_INTERNAL_KEY) headers['X-Internal-Key'] = process.env.AGENT_INTERNAL_KEY;
   const res = await fetch(`${AGENT_BASE_URL}/index`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(spot),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

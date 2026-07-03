@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { AGENT_BASE_URL, agentHeaders } from '@/lib/agent';
 
-const AGENT_BASE_URL = process.env.AGENT_BASE_URL || 'http://127.0.0.1:8000';
 const AZURE_ENDPOINT = process.env.AZURE_SEARCH_ENDPOINT || '';
 const AZURE_KEY = process.env.AZURE_SEARCH_KEY || '';
 const VISION_INDEX = 'penanglens-poc-index';
@@ -23,7 +23,7 @@ async function triggerIndex(spot: {
   try {
     await fetch(`${AGENT_BASE_URL}/index`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: agentHeaders(),
       body: JSON.stringify(spot),
     });
   } catch {
@@ -34,7 +34,7 @@ async function triggerIndex(spot: {
 /** Fire-and-forget: remove spot from Azure AI Search */
 async function triggerDeleteIndex(spotId: string) {
   try {
-    await fetch(`${AGENT_BASE_URL}/index/${spotId}`, { method: 'DELETE' });
+    await fetch(`${AGENT_BASE_URL}/index/${spotId}`, { method: 'DELETE', headers: agentHeaders() });
   } catch {
     console.warn(`[RAG] Failed to delete index for spot ${spotId} — Agent may be offline.`);
   }

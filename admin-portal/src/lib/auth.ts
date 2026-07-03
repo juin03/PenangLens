@@ -3,8 +3,17 @@ import jwt from 'jsonwebtoken';
 import { NextRequest } from 'next/server';
 import { prisma } from './prisma';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'penanglens-dev-secret';
 const TOKEN_EXPIRE = '24h';
+
+// No fallback secret: signing tokens with a value published in the repo would let
+// anyone forge admin sessions. Checked lazily so `next build` works without env vars.
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET environment variable is required — see .env.example');
+  }
+  return secret;
+}
 
 // ─────────────────── Password Hashing ───────────────────
 
@@ -19,12 +28,13 @@ export function verifyPassword(plain: string, hashed: string): boolean {
 // ─────────────────── JWT Tokens ───────────────────
 
 export function createToken(userId: string, email: string): string {
-  return jwt.sign({ sub: userId, email }, JWT_SECRET, { expiresIn: TOKEN_EXPIRE });
+  return jwt.sign({ sub: userId, email }, getJwtSecret(), { expiresIn: TOKEN_EXPIRE });
 }
 
 export function verifyToken(token: string): { sub: string; email: string } | null {
+  const secret = getJwtSecret(); // throws loudly if unset, instead of failing all logins silently
   try {
-    return jwt.verify(token, JWT_SECRET) as { sub: string; email: string };
+    return jwt.verify(token, secret) as { sub: string; email: string };
   } catch {
     return null;
   }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { AGENT_BASE_URL, agentHeaders } from '@/lib/agent';
 
-const AGENT_BASE_URL = process.env.AGENT_URL || process.env.AGENT_BASE_URL || 'http://127.0.0.1:8000';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
@@ -162,7 +162,7 @@ export async function GET(request: NextRequest) {
       try {
         const recRes = await fetch(`${AGENT_BASE_URL}/api/v1/personalization/recommendations`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: agentHeaders(),
           body: JSON.stringify({ interests, top_k: 30 }),
         });
 

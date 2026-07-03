@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const AGENT_BASE_URL = process.env.AGENT_URL || 'http://127.0.0.1:8000';
+import { AGENT_BASE_URL, agentHeaders } from '@/lib/agent';
 
 export async function GET(
   request: NextRequest,
@@ -33,9 +32,7 @@ async function handleProxy(request: NextRequest, params: { path: string[] }) {
       targetUrl.searchParams.append(key, value);
     });
 
-    const headers = new Headers();
-    headers.set('Content-Type', 'application/json');
-    // Basic API Key auth can be added here, e.g., headers.set('Authorization', ...)
+    const headers = new Headers(agentHeaders());
 
     let body = undefined;
     if (request.method !== 'GET' && request.method !== 'HEAD') {

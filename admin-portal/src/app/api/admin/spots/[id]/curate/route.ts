@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { AGENT_BASE_URL, agentHeaders } from '@/lib/agent';
 
 export async function POST(
   request: NextRequest,
@@ -21,10 +22,10 @@ export async function POST(
       : '';
 
     const agentRes = await fetch(
-      `${process.env.AGENT_URL || process.env.AGENT_BASE_URL || 'http://127.0.0.1:8000'}/api/v1/chat`,
+      `${AGENT_BASE_URL}/api/v1/chat`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: agentHeaders(),
         body: JSON.stringify({
           message: `You are a heritage tourism writer for Penang, Malaysia. Write detailed content about "${spot.name}".${instructionBlock}\n\nReturn ONLY a JSON object with these keys: overview (2-3 sentences), history (3-4 sentences about origin/history), culture (2-3 sentences about cultural significance), funFacts (2-3 interesting facts as a single paragraph). Be accurate and informative.`,
           thread_id: `admin_curate_${id}`,

@@ -186,6 +186,27 @@ async def request_logging_middleware(request: Request, call_next):
 
     return response
 
+# Internal auth: when AGENT_INTERNAL_KEY is set, every non-public endpoint requires the
+# matching X-Internal-Key header. The Next.js BFF is the only intended caller — this
+# stops direct internet access to the index-mutation and generation endpoints.
+# Leave the env var unset for local development to disable enforcement.
+INTERNAL_KEY = os.getenv("AGENT_INTERNAL_KEY", "")
+_PUBLIC_PATH_PREFIXES = ("/docs", "/redoc", "/openapi.json", "/api/v1/health", "/api/health", "/static")
+
+
+@app.middleware("http")
+async def internal_auth_middleware(request: Request, call_next):
+    if INTERNAL_KEY:
+        path = request.url.path
+        is_public = path == "/" or path.startswith(_PUBLIC_PATH_PREFIXES)
+        if not is_public and request.headers.get("x-internal-key") != INTERNAL_KEY:
+            return JSONResponse(
+                status_code=401,
+                content={"error": "unauthorized", "message": "Missing or invalid X-Internal-Key header"},
+            )
+    return await call_next(request)
+
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
