@@ -13,7 +13,9 @@ from pathlib import Path
 
 # Config
 ADMIN_URL = os.getenv("ADMIN_URL", "http://localhost:3000")
-MAPS_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "***REMOVED_KEY***")
+MAPS_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
+if not MAPS_KEY:
+    sys.exit("GOOGLE_MAPS_API_KEY is not set — export it or add it to Agent/.env")
 PLACES_BASE = "https://places.googleapis.com/v1"
 
 def find_place(name: str) -> dict | None:

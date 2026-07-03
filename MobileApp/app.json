@@ -9,10 +9,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true,
-      "config": {
-        "googleMapsApiKey": "***REMOVED_KEY***"
-      }
+      "supportsTablet": true
     },
     "android": {
       "package": "com.penanglens.app",
@@ -24,12 +21,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": false,
-      "predictiveBackGestureEnabled": false,
-      "config": {
-        "googleMaps": {
-          "apiKey": "***REMOVED_KEY***"
-        }
-      }
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",

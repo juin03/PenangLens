@@ -8,7 +8,10 @@ import { Colors, Radius, Spacing, scale, Shadow } from '@/constants/theme';
 import { saveItinerary, API_BASE_URL, getToken } from '@/api/client';
 import { INTEREST_TAGS } from '@/constants/taxonomy';
 
-const MAPS_API_KEY = '***REMOVED_KEY***';
+// Client-side key for Places Autocomplete. Set in MobileApp/.env for local dev and as
+// an EAS environment variable for builds/updates. Restrict it in Google Cloud Console
+// (Places API only + Android app restriction) — client keys are always extractable.
+const MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
 const toMinutes = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 const toTime = (m: number) => { const h = Math.floor(m / 60); const mm = m % 60; return `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; };
