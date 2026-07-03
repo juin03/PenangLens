@@ -572,8 +572,9 @@ def _create_llm():
 
 def _fix_messages(messages: list) -> list:
     """
-    Filter and fix messages to ensure all have valid content
-    (required by Gemini API).
+    Defensively filter the message list before sending to the LLM: drop messages with
+    empty content and give tool-calling AI messages a placeholder text so the provider
+    never receives a content-less message.
     """
     fixed = []
 
@@ -673,7 +674,7 @@ def create_graph():
         # Prepend system message
         full_messages = [SystemMessage(content=system_prompt)] + list(messages)
 
-        # Fix messages for Gemini API compatibility
+        # Drop empty-content messages before sending to the LLM
         fixed = _fix_messages(full_messages)
 
         if not fixed:
@@ -682,7 +683,7 @@ def create_graph():
                 HumanMessage(content="Hello, I need help planning my trip to Penang."),
             ]
 
-        # Call the LLM with key rotation (retry once on quota with next key)
+        # Call the LLM; retry once on transient quota/rate-limit errors
         response = None
         last_error = None
         for attempt in range(2):
@@ -695,14 +696,15 @@ def create_graph():
                 message = str(exc)
                 is_quota_error = "RESOURCE_EXHAUSTED" in message or "429" in message
                 if is_quota_error and attempt == 0:
-                    logger.warning("Quota hit in agent node, retrying with next API key")
+                    logger.warning("Quota hit in agent node, retrying once")
                     continue
                 raise
 
         if response is None and last_error is not None:
             raise last_error
 
-        # Normalize list content to string (Gemini sometimes returns [{"text": "..."}])
+        # Normalize list-format content to a plain string (some providers return
+        # content as [{"text": "..."}] parts)
         if isinstance(response, AIMessage) and isinstance(response.content, list):
             text_parts = []
             for item in response.content:

@@ -212,7 +212,7 @@ class HealthResponse(BaseModel):
     """Health check response."""
     status: str = Field(default="healthy")
     version: str = Field(default="2.0.0")
-    gemini_configured: bool = False
+    llm_configured: bool = False
     maps_configured: bool = False
 
 

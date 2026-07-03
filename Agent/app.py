@@ -111,6 +111,15 @@ def _log_env_diagnostics() -> None:
 # App Initialization
 # =============================================================================
 
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _log_env_diagnostics()
+    yield
+
+
 app = FastAPI(
     title="PenangLens AI Agent",
     description=(
@@ -121,12 +130,8 @@ app = FastAPI(
     version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
-
-
-@app.on_event("startup")
-async def on_startup_observability() -> None:
-    _log_env_diagnostics()
 
 
 @app.middleware("http")
@@ -855,12 +860,11 @@ async def health_v1():
     return HealthResponse(
         status="healthy",
         version="2.0.0",
-        gemini_configured=llm_configured,
+        llm_configured=llm_configured,
         maps_configured=bool(maps_key and maps_key != 'your_google_maps_api_key_here'),
     )
 
 
-@app.get("/api/v1/usage")
 @app.post("/api/v1/personalization/user-profile")
 async def upsert_user_profile(req: UpsertUserProfileRequest):
     """Upsert a user profile vector from onboarding/profile interests."""
@@ -934,7 +938,6 @@ if __name__ == '__main__':
         print("  POST /api/v1/personalization/user-profile            — Upsert user profile vector")
         print("  POST /api/v1/personalization/place-profiles/backfill — Build place vectors")
         print("  POST /api/v1/personalization/recommendations         — Ranked places from interests")
-        print("  GET  /api/v1/usage         — Token usage & cost stats")
         print("  GET  /api/v1/sessions/{id} — Session history")
         print("  GET  /api/v1/health        — Health check")
         print("Press Ctrl+C to stop")
