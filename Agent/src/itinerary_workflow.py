@@ -34,6 +34,61 @@ logger = logging.getLogger("penang_agent.workflow")
 
 
 # ---------------------------------------------------------------------------
+# Shared business rules — single source of truth.
+# These were previously copy-pasted in 4+ places with slightly different
+# contents, so behavior varied by code path.
+# ---------------------------------------------------------------------------
+
+# Minimum visit durations for major attractions (substring match on stop name).
+MIN_DURATIONS = {
+    "penang hill": 180,
+    "kek lok si": 120,
+    "penang national park": 180,
+    "the habitat": 90,
+    "escape theme park": 240,
+    "hawker": 45,
+    "foodstall": 45,
+    "food court": 45,
+}
+
+# Name keywords that mark a stop as food-related (union of the old variants).
+FOOD_KEYWORDS = {
+    "hawker", "restaurant", "cafe", "food", "kandar", "laksa", "koay", "kuey",
+    "mee", "chendul", "cendol", "kopitiam", "foodstall", "foodcourt", "rojak",
+    "char", "nasi", "porridge", "dim sum", "bak kut", "curry",
+}
+
+# Snacks/desserts — food stops that do NOT count as a proper meal.
+SNACK_KEYWORDS = {
+    "chendul", "cendol", "ice kacang", "ais kacang", "durian", "dessert",
+    "bakery", "cake", "popiah", "kuih",
+}
+
+FOOD_CATEGORIES = {"food", "restaurant", "cafe"}
+
+
+def _min_duration_for(name: str, default: int = 30) -> int:
+    """Minimum allowed visit duration for a stop, by name keyword.
+
+    When several keys match, the one appearing earliest in the name wins (longest on
+    ties) — so "The Habitat Penang Hill" resolves to "the habitat" (90), not the
+    later "penang hill" (180).
+    """
+    name_lower = name.lower()
+    best = default
+    best_rank = None  # (match_position, -key_length): smaller is better
+    for key, md in MIN_DURATIONS.items():
+        pos = name_lower.find(key)
+        if pos == -1:
+            continue
+        rank = (pos, -len(key))
+        if best_rank is None or rank < best_rank:
+            best_rank = rank
+            best = md
+    return best
+
+
+# ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
 
@@ -625,12 +680,10 @@ def validate_node(state: WorkflowState) -> dict:
 
     stop_lookup = {s["name"]: s for s in selected}
     cand_lookup = {s["name"]: s for s in state.get("candidates", [])}
-    food_kw = {"hawker", "restaurant", "cafe", "food", "kandar", "laksa", "koay", "mee", "chendul", "kopitiam", "foodstall", "foodcourt"}
-    snack_kw = {"chendul", "cendol", "ice kacang", "ais kacang", "durian", "dessert", "bakery", "cake", "popiah", "kuih"}
     def _is_food_stop(name: str, cand: dict) -> bool:
-        return cand.get("category") == "food" or any(w in name.lower() for w in food_kw)
+        return cand.get("category") == "food" or any(w in name.lower() for w in FOOD_KEYWORDS)
     def _is_snack_stop(name: str) -> bool:
-        return any(w in name.lower() for w in snack_kw)
+        return any(w in name.lower() for w in SNACK_KEYWORDS)
 
     # Only enforce consecutive food stop rule for mixed itineraries
     interests = state.get("interests", [])
@@ -769,13 +822,7 @@ def validate_node(state: WorkflowState) -> dict:
                 overshoot = current - (end_min + 30)
                 stop_data = stop_lookup.get(name, {})
                 original_dur = stop_data.get("visit_duration_min", dur)
-                # Enforce minimum durations for major attractions
-                MIN_DURATIONS = {"penang hill": 180, "kek lok si": 120, "penang national park": 180, "the habitat": 90, "escape theme park": 240, "hawker": 45, "foodstall": 45, "food court": 45}
-                min_dur = 30
-                for key, md in MIN_DURATIONS.items():
-                    if key in name.lower():
-                        min_dur = md
-                        break
+                min_dur = _min_duration_for(name)
                 new_dur = original_dur - overshoot
                 # If it's the last stop and would be shortened below minimum, drop it
                 if i == len(order) - 1 and new_dur < min_dur:
@@ -1067,30 +1114,16 @@ Call tools first if you need to add stops, then call "done" with the complete li
                     if not new_order:
                         new_order = order  # fallback
 
-                    # Minimum duration rules for major attractions
-                    MIN_DURATIONS = {
-                        "penang hill": 180,
-                        "kek lok si": 120,
-                        "kek lok si temple": 120,
-                        "penang national park": 180,
-                        "the habitat penang hill": 90,
-                        "escape theme park": 240,
-                        "hawker": 45,
-                        "foodstall": 45,
-                        "food court": 45,
-                    }
-
                     for s in selected:
                         if s["name"] in reason_map:
                             s["reason"] = reason_map[s["name"]]
                         if s["name"] in dur_map and dur_map[s["name"]]:
                             s["visit_duration_min"] = dur_map[s["name"]]
-                        # Enforce minimum durations
-                        name_lower = s["name"].lower()
-                        for key, min_dur in MIN_DURATIONS.items():
-                            if key in name_lower and s.get("visit_duration_min", 0) < min_dur:
-                                logger.info(f"refine_node: enforcing min duration {min_dur}min for '{s['name']}'")
-                                s["visit_duration_min"] = min_dur
+                        # Enforce minimum durations for major attractions
+                        min_dur = _min_duration_for(s["name"], default=0)
+                        if s.get("visit_duration_min", 0) < min_dur:
+                            logger.info(f"refine_node: enforcing min duration {min_dur}min for '{s['name']}'")
+                            s["visit_duration_min"] = min_dur
 
                     logger.info(f"refine_node: done — {len(new_order)} stops with updated reasons")
                     for s in final_stops:
@@ -1584,8 +1617,8 @@ def _run_itinerary_workflow_impl(
             food_only = state.get("interests") and all(i.lower() in {"food","dining","eating"} for i in state.get("interests",[]))
             # Check if dinner is missing
             end_min_check = _time_to_min(end_time)
-            food_kw_dinner = {"hawker","restaurant","cafe","food","kandar","laksa","mee","kopitiam","foodstall"}
-            snack_kw_dinner = {"chendul","cendol","ice kacang","ais kacang","popiah","kuih","dessert"}
+            food_kw_dinner = FOOD_KEYWORDS
+            snack_kw_dinner = SNACK_KEYWORDS
             has_dinner = any(
                 any(w in s.name.lower() for w in food_kw_dinner) and
                 not any(w in s.name.lower() for w in snack_kw_dinner) and
@@ -1732,7 +1765,7 @@ Return ONLY JSON array. For each stop provide at least 3 alternatives in case th
         candidates = list(state["candidates"])
         rejected: set[str] = set()
         food_only_trip = state.get("interests") and all(i.lower() in {"food", "dining", "eating"} for i in state.get("interests", []))
-        fill_food_kw = {"hawker", "restaurant", "cafe", "food", "kandar", "laksa", "mee", "chendul", "cendol", "kopitiam", "foodstall", "rojak", "kuey", "koay", "char", "nasi", "porridge", "dim sum", "bak kut", "curry"}
+        fill_food_kw = FOOD_KEYWORDS
 
         for fs in new_stops:
             # For food-only trips, skip non-food suggestions entirely
@@ -1790,24 +1823,17 @@ Return ONLY JSON array. For each stop provide at least 3 alternatives in case th
                     continue
                 # Don't place two food stops consecutively (skip for food-only trips)
                 food_only = state.get("interests") and all(i.lower() in {"food", "dining", "eating"} for i in state.get("interests", []))
-                food_categories = {"food", "restaurant", "cafe"}
-                food_keywords = ["hawker", "restaurant", "cafe", "food", "kandar", "laksa", "koay", "mee", "chendul", "kopitiam"]
-                snack_keywords = ["chendul", "cendol", "ice kacang", "ais kacang", "durian", "dessert", "bakery", "cake", "popiah", "kuih"]
-                new_is_food = fs.get("category", "") in food_categories or any(w in det["name"].lower() for w in food_keywords)
-                new_is_snack = any(w in det["name"].lower() for w in snack_keywords)
-                last_is_snack = any(w in order[-1].lower() for w in snack_keywords) if order else False
+                new_is_food = fs.get("category", "") in FOOD_CATEGORIES or any(w in det["name"].lower() for w in FOOD_KEYWORDS)
+                new_is_snack = any(w in det["name"].lower() for w in SNACK_KEYWORDS)
+                last_is_snack = any(w in order[-1].lower() for w in SNACK_KEYWORDS) if order else False
                 if new_is_food and order and not food_only and not new_is_snack and not last_is_snack:
                     last_stop_data = next((c for c in candidates if c["name"] == order[-1]), {})
-                    last_is_food = last_stop_data.get("category", "") in food_categories or any(w in order[-1].lower() for w in food_keywords)
+                    last_is_food = last_stop_data.get("category", "") in FOOD_CATEGORIES or any(w in order[-1].lower() for w in FOOD_KEYWORDS)
                     if last_is_food:
                         logger.info(f"_fill_gaps: skipping '{det['name']}' — consecutive food stop after '{order[-1]}'")
                         continue
                 # Enforce minimum durations for major attractions
-                MIN_DURATIONS = {"penang hill": 180, "kek lok si": 120, "penang national park": 180, "the habitat": 90, "escape theme park": 240, "hawker": 45, "foodstall": 45, "food court": 45}
-                visit_dur = fs.get("visit_duration_min", 60)
-                for key, min_dur in MIN_DURATIONS.items():
-                    if key in det["name"].lower() and visit_dur < min_dur:
-                        visit_dur = min_dur
+                visit_dur = max(fs.get("visit_duration_min", 60), _min_duration_for(det["name"], default=0))
                 enriched["visit_duration_min"] = visit_dur
                 # Skip if already in itinerary (fuzzy match)
                 canonical = det["name"].lower()
@@ -2126,11 +2152,7 @@ Return ONLY JSON: {{"name": "Real Place Name", "alternatives": ["Alt1", "Alt2"],
                 photo_url = build_photo_url(details["photo_reference"], api_key)
 
             # Enforce minimum durations for major attractions
-            visit_dur = suggestion.get("visit_duration_min", 60)
-            MIN_DURATIONS = {"penang hill": 180, "kek lok si": 120, "penang national park": 180, "the habitat": 90, "escape theme park": 240, "hawker": 45, "foodstall": 45, "food court": 45}
-            for key, min_dur in MIN_DURATIONS.items():
-                if key in details["name"].lower() and visit_dur < min_dur:
-                    visit_dur = min_dur
+            visit_dur = max(suggestion.get("visit_duration_min", 60), _min_duration_for(details["name"], default=0))
 
             new_stop = {
                 "name": details["name"],
