@@ -660,8 +660,10 @@ def create_graph():
         """The main agent node that calls the LLM."""
         messages = state["messages"]
 
-        # Thread id for LangSmith conversation grouping (from the graph's configurable).
-        thread_id = (config or {}).get("configurable", {}).get("thread_id")
+        # Thread id for LangSmith conversation grouping. ls_thread_id is the stable
+        # client-facing id; the graph's own thread_id may be an ephemeral one.
+        configurable = (config or {}).get("configurable", {})
+        thread_id = configurable.get("ls_thread_id") or configurable.get("thread_id")
         ls_config = {"metadata": {"thread_id": thread_id}} if thread_id else {}
 
         # Build system prompt with preferences
@@ -974,8 +976,17 @@ def run_agent(
         "current_itinerary": current_itinerary,
     }
 
+    # When the client supplies the conversation history (the mobile app persists chat
+    # in its own DB and replays it every turn), run on an EPHEMERAL thread: appending
+    # history onto an already-checkpointed thread would duplicate every prior turn
+    # into the graph state on each request, compounding tokens quadratically. The
+    # checkpointer is per-process and wiped on scale-to-zero anyway, so client
+    # history is the reliable source of truth. ls_thread_id keeps LangSmith traces
+    # grouped under the stable client-facing id.
+    graph_thread_id = f"{thread_id}::{uuid.uuid4().hex[:8]}" if history_msgs else thread_id
+
     config = {
-        "configurable": {"thread_id": thread_id},
+        "configurable": {"thread_id": graph_thread_id, "ls_thread_id": thread_id},
         "recursion_limit": RECURSION_LIMIT,
     }
 
@@ -983,7 +994,11 @@ def run_agent(
         logger.info(f"Processing message for thread {thread_id[:8]}...")
 
     # Run the graph
-    final_state = graph.invoke(input_state, config=config)
+    try:
+        final_state = graph.invoke(input_state, config=config)
+    finally:
+        if graph_thread_id != thread_id:
+            delete_session(graph_thread_id)
 
     if verbose:
         logger.info(f"Agent completed for thread {thread_id[:8]}")
@@ -1083,8 +1098,11 @@ async def run_agent_stream(
         "current_itinerary": current_itinerary,
     }
 
+    # Ephemeral thread when the client replays history — see run_agent for rationale.
+    graph_thread_id = f"{thread_id}::{uuid.uuid4().hex[:8]}" if history_msgs else thread_id
+
     config = {
-        "configurable": {"thread_id": thread_id},
+        "configurable": {"thread_id": graph_thread_id, "ls_thread_id": thread_id},
         "recursion_limit": RECURSION_LIMIT,
     }
 
@@ -1134,6 +1152,9 @@ async def run_agent_stream(
             "data": f"An error occurred: {str(e)}",
             "thread_id": thread_id,
         }
+    finally:
+        if graph_thread_id != thread_id:
+            delete_session(graph_thread_id)
 
     yield {
         "event_type": "done",
