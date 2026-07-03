@@ -249,9 +249,11 @@ def _check_open_at_time(opening_hours: dict, time_str: str) -> str:
     # Check open_now first (most accurate for current time)
     is_open_now = opening_hours.get("open_now")
 
-    # Use weekday_text as fallback display
+    # Use weekday_text as fallback display. Malaysia Time — the server clock is UTC,
+    # which is the previous weekday between 00:00–08:00 MYT.
+    from datetime import timezone, timedelta
     weekday_text = opening_hours.get("weekday_text", [])
-    today_idx = datetime.now().weekday()  # 0=Monday, 6=Sunday
+    today_idx = datetime.now(timezone(timedelta(hours=8))).weekday()  # 0=Monday, 6=Sunday
     # Google uses 0=Sunday, so convert
     google_day = (today_idx + 1) % 7
 

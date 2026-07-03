@@ -152,13 +152,17 @@ Return JSON only:
             if place_id:
                 details = _get_place_details_by_id(place_id, api_key)
                 geo = details.get("geometry", {}).get("location", {})
+                weekday_text = details.get("opening_hours", {}).get("weekday_text", [])
                 pinned.append({
                     "name": place_name,
                     "place_id": place_id,
                     "category": "pinned",
                     "rating": details.get("rating"),
-                    "duration_min": 60,
-                    "is_open": True,
+                    # downstream (validate/refine/format) reads visit_duration_min
+                    "visit_duration_min": 60,
+                    "hours": " | ".join(weekday_text) if weekday_text else "",
+                    "address": details.get("formatted_address") or details.get("vicinity", ""),
+                    "is_open": details.get("opening_hours", {}).get("open_now"),
                     "lat": geo.get("lat"),
                     "lng": geo.get("lng"),
                     "photo_reference": details.get("photo_reference"),
@@ -673,11 +677,11 @@ def validate_node(state: WorkflowState) -> dict:
             # Check opening hours — allow 30min grace (wait for it to open)
             hours = cand_lookup.get(name, {}).get("hours", "") or stop_lookup.get(name, {}).get("hours", "")
             if hours:
-                is_open, hours_today = _is_open_at(hours, arrival_time)
+                is_open, hours_today = _is_open_at(hours, arrival_time, state.get("start_date"))
                 if not is_open:
                     # Check if it opens within 30 min
                     grace_time = _min_to_time(current + 30)
-                    is_open_soon, _ = _is_open_at(hours, grace_time)
+                    is_open_soon, _ = _is_open_at(hours, grace_time, state.get("start_date"))
                     if is_open_soon:
                         logger.info(f"validate_node: '{name}' opens soon — adjusting arrival to {grace_time}")
                         current += 30
@@ -835,11 +839,13 @@ def refine_node(state: WorkflowState) -> dict:
     cand_lookup = {s["name"]: s for s in candidates}
     current = _time_to_min(start_time)
     schedule_lines = []
+    sched_windows: dict[str, tuple[int, int]] = {}  # name → (arrival_min, departure_min)
     for i, name in enumerate(order):
         dur = stop_lookup.get(name, {}).get("visit_duration_min", 45)
         arrival = _min_to_time(current)
         current += dur
         departure = _min_to_time(current)
+        sched_windows[name] = (_time_to_min(arrival), _time_to_min(departure))
         category = stop_lookup.get(name, {}).get("category", "attraction")
         hours = cand_lookup.get(name, {}).get("hours", "")
         rating = cand_lookup.get(name, {}).get("rating", "")
@@ -864,14 +870,14 @@ def refine_node(state: WorkflowState) -> dict:
     end_min = _time_to_min(end_time)
     unused = end_min - current
 
-    # Add explicit lunch coverage note if Penang Hill spans the lunch window
+    # Add explicit lunch coverage note if Penang Hill spans the lunch window.
+    # Uses the actual scheduled window computed above — selected_stops don't carry
+    # arrival/departure times at this point in the pipeline.
     lunch_note = ""
     for name in order:
         if "penang hill" in name.lower():
-            s = stop_lookup.get(name, {})
-            arr = _time_to_min(s.get("arrival_time") or start_time)
-            dep = _time_to_min(s.get("departure_time") or end_time)
-            if arr <= 810 and dep >= 690:  # spans 11:30–13:30
+            arr, dep = sched_windows.get(name, (None, None))
+            if arr is not None and arr <= 810 and dep >= 690:  # spans 11:30–13:30
                 lunch_note = f"\nNOTE: Penang Hill spans the lunch window — lunch is covered at David Brown's on the hill. Do NOT add a separate lunch stop."
                 break
     logger.info(f"[refine_node] starting — {len(order)} stops, {unused}min unused")
@@ -1735,7 +1741,7 @@ Return ONLY JSON array. For each stop provide at least 3 alternatives in case th
                 est_arrival = _min_to_time(last_dep + 15)
                 hours_str = " | ".join(wt) if wt else ""
                 if hours_str:
-                    is_open, _ = _is_open_at(hours_str, est_arrival)
+                    is_open, _ = _is_open_at(hours_str, est_arrival, state.get("start_date"))
                     if not is_open:
                         logger.info(f"_fill_gaps: skipping '{det['name']}' — closed at {est_arrival}")
                         rejected.add(det['name'])
@@ -1807,17 +1813,41 @@ class PlaceUnavailableError(Exception):
     pass
 
 
-def _is_open_at(hours_text: str, visit_time: str) -> tuple[bool, str]:
+class DuplicateStopError(PlaceUnavailableError):
+    """Raised when a modification would add a place already in the itinerary.
+
+    Subclasses PlaceUnavailableError so the API layer's existing handler turns it
+    into a chat-bubble message instead of a failed modification.
+    """
+    pass
+
+
+_MYT = timezone(timedelta(hours=8))  # Malaysia Time — the server runs in UTC
+
+
+def _is_open_at(hours_text: str, visit_time: str, visit_date: Optional[str] = None) -> tuple[bool, str]:
     """
     Check if a place is open at visit_time (HH:MM) given hours_text like
     'Monday: 9:00 AM – 9:00 PM | Tuesday: ...'
-    Returns (is_open, hours_for_today).
+
+    visit_date ("YYYY-MM-DD") selects which weekday's hours apply — trips are often
+    planned for a future date. Falls back to today's date in Malaysia Time (never the
+    server's UTC clock, which is a different weekday between 00:00–08:00 MYT).
+    Returns (is_open, hours_for_that_day).
     """
     if not hours_text:
         return True, ""  # unknown → assume open
-    
+
     day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    today_name = day_names[datetime.now().weekday()]
+    weekday = None
+    if visit_date:
+        try:
+            weekday = datetime.strptime(visit_date, "%Y-%m-%d").weekday()
+        except (ValueError, TypeError):
+            weekday = None
+    if weekday is None:
+        weekday = datetime.now(_MYT).weekday()
+    today_name = day_names[weekday]
     
     # Find today's hours in the pipe-separated string
     today_hours = ""
@@ -2058,10 +2088,13 @@ Return ONLY JSON: {{"name": "Real Place Name", "alternatives": ["Alt1", "Alt2"],
                             raise PlaceUnavailableError(primary_closed_msg)
                     continue
 
-            # Reject duplicates
+            # Reject duplicates — raise (not return a dict) so the caller's typed
+            # contract (ItineraryData) holds and the message reaches the user
             canonical = details["name"].lower()
             if any(canonical in n.lower() or n.lower() in canonical for n in existing_names):
-                return {"response": f"'{details['name']}' is already in your itinerary. Did you mean to add it again?", "structured_itinerary": current_itinerary}
+                raise DuplicateStopError(
+                    f"'{details['name']}' is already in your itinerary. Did you mean to add it again?"
+                )
 
             photo_url = None
             if details.get("photo_reference"):

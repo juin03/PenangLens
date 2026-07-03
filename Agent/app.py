@@ -310,8 +310,9 @@ def _classify_intent(message: str, has_itinerary: bool = False) -> IntentType:
     """LLM-based intent classification with keyword fast-path."""
     msg_lower = message.lower()
 
-    # Fast-path: obvious greetings
-    if any(w in msg_lower for w in ["hi", "hello", "hey", "good morning", "good afternoon"]):
+    # Fast-path: obvious greetings. Word-boundary match — plain substring would make
+    # "hi" match "this" and misroute e.g. "is this open" as a greeting (skipping RAG).
+    if re.search(r"\b(hi|hello|hey|good morning|good afternoon)\b", msg_lower):
         if len(msg_lower.split()) <= 3:
             return IntentType.GREETING
 
