@@ -158,6 +158,7 @@ committed, and the repo history has been scrubbed and verified clean.
 
 ## Documentation
 
+- [`docs/CODEBASE_GUIDE.md`](docs/CODEBASE_GUIDE.md) — **start here**: tech stack, code structure, reading order, pipeline tour
 - [`docs/agent-architecture.md`](docs/agent-architecture.md) — agent internals
 - [`docs/pipeline-diagrams.md`](docs/pipeline-diagrams.md) — flow diagrams
 - [`docs/ragas-evaluation-results.md`](docs/ragas-evaluation-results.md) — RAG evaluation

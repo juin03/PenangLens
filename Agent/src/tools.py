@@ -1,12 +1,25 @@
 """
-Tool functions for the PenangLens AI Agent.
+Google Maps Platform wrappers — the "facts" layer both AI systems build on.
 
-Google-first architecture:
-- search_places: Google Places Nearby Search + RAG enrichment from admin DB
-- check_opening_hours: Google Place Details API (live hours including holidays)
-- get_place_details: Google Place Details API (full fields)
-- get_travel_time: Google Distance Matrix API
-- check_weather: OpenWeatherMap API
+Public functions (used by the chat agent's tools and the itinerary pipeline):
+  - search_places / search_nearby_places / search_restaurants  → Places API (New)
+  - _find_place_id → Text Search with an IDs-ONLY field mask (that SKU is free)
+  - _get_place_details_by_id → Place Details (rating, hours, coords, photos…)
+  - get_travel_time → Distance Matrix (single origin→destination)
+  - check_opening_hours → live hours incl. public holidays, day-aware in MYT
+  - build_photo_url → client-safe photo URLs (proxied via the BFF when
+    PHOTO_PROXY_BASE is set, so the server API key never reaches clients)
+  - check_weather → OpenWeatherMap (mock data when unconfigured)
+
+Billing notes (why the code looks the way it does):
+  - Every Places call is billed by the FIELDS requested (field mask) — ask only for
+    what you need. Text Search asking for IDs only costs nothing, which is why place
+    verification is a two-step "free lookup → paid details" dance.
+  - Distance Matrix is billed PER ELEMENT (origins × destinations) — batch grids are
+    a cost trap; see itinerary_workflow._fetch_travel_segments.
+
+Everything degrades gracefully without an API key (mock/local-JSON fallbacks) so the
+service can run in dev without spending money.
 """
 
 import json

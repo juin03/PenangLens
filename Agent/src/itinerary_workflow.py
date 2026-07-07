@@ -1,10 +1,50 @@
 """
-Deterministic itinerary generation workflow.
+Deterministic itinerary generation workflow — the engine behind the Plan tab.
 
-Replaces the ReAct agent for /generate endpoints with a fixed pipeline:
-  search → select (LLM) → optimize → travel_times → format
+Design principle: **LLM for judgment, code for facts.** The LLM only makes bounded
+decisions (which places to visit, how to refine the schedule). Everything factual —
+whether a place exists, its opening hours, real travel times — comes from Google Maps
+data and deterministic validation rules. The user can never see a hallucinated stop.
 
-Only the select step uses the LLM — everything else is deterministic Python.
+Pipeline (entry point: run_itinerary_workflow):
+
+    1. parse_description_node   LLM extracts named places / cuisines / location anchor
+                                from the free-text description; named places are
+                                "pinned" (verified via Google, guaranteed to appear)
+    2. fetch_recommendations    location-filtered vector RAG over admin-curated
+                                content → candidate suggestions for the planner
+    3. plan_node                LLM plans stops + alternatives + durations, guided by
+                                rules (meal windows, walkability, minimum durations)
+    4. enrich_node              VERIFICATION GATE — every planned stop is confirmed to
+                                exist via Google Places (Text Search → Place Details);
+                                alternatives are tried if the primary isn't found;
+                                wrong place types (gas stations, banks…) are dropped
+    5. travel_time_node         real travel times via Distance Matrix — one 1x1
+                                request per consecutive pair, parallel + cached
+                                (see _fetch_travel_segments for the billing rationale)
+    6. validate_node            deterministic rule engine: duplicates, opening hours
+                                for the trip's weekday (Malaysia time), meal windows,
+                                max walking distance, fit within the end time
+    7. refine_node              small hand-rolled ReAct agent (JSON tool protocol,
+                                bounded iterations): adjusts timings, fills gaps,
+                                adds missing meals, writes per-stop "reason" blurbs
+    8. format_node              assembles the final ItineraryData: schedule times,
+                                proxied photo URLs, maps links, summary notes
+    9. post-check               if >60 min unused or dinner missing, re-run refine
+                                with a gap hint (fallback: _fill_itinerary_gaps)
+
+Steps 5–6 re-run after refinement so the end-time guarantee holds for any stops the
+refine agent added or re-ordered.
+
+Also in this module:
+  - modify_itinerary: deterministic edits ("add X after stop 2") — the request is
+    parsed into a structured operation (add/remove/swap/rearrange/change_duration),
+    applied, and the whole schedule re-timed. Never a free-form regeneration.
+  - Shared business rules (MIN_DURATIONS, FOOD/SNACK_KEYWORDS) — single source of
+    truth used by every node, so behavior can't drift between code paths.
+
+The conversational chat agent lives in agent.py and is a separate system — see
+docs/CODEBASE_GUIDE.md for how the two relate.
 """
 
 import os
@@ -480,7 +520,16 @@ Return JSON array:
 # ---------------------------------------------------------------------------
 
 def enrich_node(state: WorkflowState) -> dict:
-    """Validate each LLM-planned stop via Google Find Place + Place Details."""
+    """
+    The verification gate: no stop reaches the user unless Google confirms it exists.
+
+    For each LLM-planned stop, tries the primary name then its alternatives:
+    Text Search (IDs-only field mask — free) → Place Details (rating, coordinates,
+    opening hours, photo). First name that resolves wins; if none do, the stop is
+    dropped. Places whose Google types mark them as non-attractions (taxi stands,
+    banks, gas stations…) are rejected even if they exist. Pinned stops from
+    parse_description_node are appended last (already verified there).
+    """
     logger.info("[enrich_node] starting — validating stops via Google API")
     planned = state["selected_stops"]
     api_key = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
@@ -664,7 +713,28 @@ def travel_time_node(state: WorkflowState) -> dict:
 # ---------------------------------------------------------------------------
 
 def validate_node(state: WorkflowState) -> dict:
-    """Drop stops with excessive travel time or past end_time. Recalculate."""
+    """
+    Deterministic rule engine — the safety net after LLM planning.
+
+    Iterates the schedule and drops/adjusts stops until every rule passes
+    (loop restarts after each change because drops shift all later arrival times):
+
+      - duplicates (by place_id, then fuzzy name match)
+      - stops Google never verified (no place_id = hallucination that slipped through)
+      - non-food stops on food-only trips
+      - two proper meals back-to-back (snack→meal is allowed)
+      - snacks occupying the lunch window when a real meal exists elsewhere
+      - meals in the 14:00–17:30 "dead zone" when a later meal exists
+      - closed at arrival time — checked against the TRIP's weekday in Malaysia time,
+        with a 30-min grace period if it opens soon
+      - walking legs over 35 min / driving legs over 45 min (pinned stops exempt)
+      - overshooting end_time: first try shortening the stop (never below its
+        MIN_DURATIONS floor), else drop it and everything after
+
+    If any stop was dropped, travel times are re-fetched for the new consecutive
+    pairs (cached pairs cost nothing) and a user-facing note is recorded when a
+    place the user explicitly requested didn't fit.
+    """
     order = list(state.get("optimized_order", []))
     original_order_snapshot = list(order)  # capture before any drops
     segments = state.get("travel_segments", {})
@@ -891,9 +961,21 @@ def validate_node(state: WorkflowState) -> dict:
 
 def refine_node(state: WorkflowState) -> dict:
     """
-    ReAct refinement agent. Sees the validated plan with real travel times
-    and can call tools to adjust timing, swap stops, and write descriptions.
-    Runs on 4o-mini for speed.
+    Hand-rolled ReAct refinement agent (no framework — a plain JSON tool protocol).
+
+    The agent sees the validated schedule with REAL travel times and iterates
+    (bounded by max_iterations) choosing one action per turn:
+      {"tool": "get_travel_time" | "check_place" | "find_nearby_food" | "done", ...}
+
+    Its jobs: fill unused time with interest-matched stops, ensure a proper meal in
+    each meal window, adjust durations, and write the per-stop "reason" blurbs.
+    Guardrails on its output:
+      - any NEW stop it proposes goes through the same Google verification as
+        enrich_node (unverified names are silently discarded)
+      - MIN_DURATIONS floors are re-enforced
+      - total time is re-computed in Python; if the plan overshoots end_time the
+        agent gets one correction message and must call "done" again
+    Runs on the reasoning deployment (AZURE_OPENAI_REASONING_DEPLOYMENT).
     """
     order = state["optimized_order"]
     selected = state["selected_stops"]
@@ -1976,8 +2058,20 @@ def modify_itinerary(
     history: list = None,
 ) -> ItineraryData:
     """
-    Parse a modification request and apply it deterministically to the current itinerary.
-    Returns updated ItineraryData.
+    Deterministic itinerary editing — used when chat intent classifies as MODIFY.
+
+    Never regenerates the whole plan. Instead:
+      1. An LLM parses the request into ONE structured operation:
+         add | remove | swap | change_duration | rearrange (+ position/index args)
+      2. For add/swap: an LLM suggests a concrete place + alternatives, then the same
+         Google verification as the main pipeline runs (exists? open at the planned
+         slot? duplicate?). Failures raise PlaceUnavailableError / DuplicateStopError,
+         which the API layer turns into a friendly chat bubble.
+      3. Travel times are re-fetched for the new consecutive pairs and the whole
+         schedule is re-timed from start_time.
+
+    Keeping edits structural (not generative) means one request changes exactly one
+    thing and the rest of the user's plan is untouched.
     """
     stops = current_itinerary.get("stops", [])
     if not stops:

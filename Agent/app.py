@@ -1,13 +1,32 @@
 """
-FastAPI server for PenangLens AI Agent microservice.
+FastAPI entry point for the PenangLens Agent microservice.
 
-Provides versioned REST API endpoints for:
-- Multi-turn chat with session persistence
-- Server-Sent Events (SSE) streaming
-- Session management (history, deletion)
-- Health checks
+Called only by the Next.js BFF (admin-portal) — when AGENT_INTERNAL_KEY is set,
+every non-public endpoint requires the matching X-Internal-Key header, so this
+service is not directly reachable from the internet.
 
-This is a microservice designed to be called by a Next.js frontend.
+Route map:
+
+  POST /api/v1/chat               chat, JSON response (also handles MODIFY intent →
+                                  modify_itinerary; falls back to the agent on error)
+  POST /api/v1/chat/stream        chat via SSE (token/tool events)
+  POST /api/v1/generate           itinerary generation (deterministic pipeline)
+  POST /api/v1/generate/stream    same, with SSE status updates per pipeline stage
+  POST /index, DELETE /index/{id} RAG index upsert/delete (called on admin publish)
+  POST /api/v1/personalization/*  interest-vector recommendations
+  GET  /api/v1/health             public health/config check
+  GET  /api/v1/sessions/{id}/...  session history (legacy — clients persist their own)
+
+This layer owns three responsibilities that deliberately live OUTSIDE the agent graph:
+
+  1. Scope guardrail — check_scope() runs on the RAW user message before any
+     RAG/landmark context is injected (injected Penang keywords would otherwise
+     smuggle off-topic requests past the check).
+  2. Retrieval (RAG) — for general questions, top-3 chunks from Azure AI Search are
+     appended to the message; landmark chat injects the spot's curated content
+     directly; greetings skip retrieval entirely.
+  3. Intent routing — greeting / general question / plan / modify. MODIFY with an
+     active itinerary goes to the deterministic modify_itinerary, not the LLM agent.
 """
 
 import os

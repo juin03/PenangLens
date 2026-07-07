@@ -1,15 +1,42 @@
 """
-Core AI Agent implementation using LangGraph and Azure OpenAI.
+Conversational chat agent — LangGraph state machine on Azure OpenAI.
 
-This module implements the autonomous agent that:
-1. Receives natural language travel requests
-2. Checks guardrails (Penang-only scope, input limits)
-3. Uses tools to gather data (search places, calculate travel time)
-4. Validates constraints (time limits, opening hours)
-5. Self-corrects when validation fails (loops back with feedback)
-6. Generates valid itineraries with structured output
-7. Supports multi-turn conversations via persistent memory
-8. Supports streaming responses via async generators
+This powers the free-form chats (Ask about Penang, landmark chat, itinerary chat).
+It is a SEPARATE system from itinerary generation: the Plan tab uses the
+deterministic pipeline in itinerary_workflow.py, not this graph.
+
+Graph shape (create_graph):
+
+    guardrail ──► agent ◄──────┐
+        │           │          │
+       END      tool calls?    │
+                 yes │  no     │
+                     ▼         ▼
+                   tools   validation ──► END
+                     │         │ (response too short / itinerary written as
+                     └─────────┘  plain text → correction msg, max 3 retries)
+
+Key facts a reader needs (common sources of confusion):
+
+  - RAG is NOT in this file. Retrieval happens in the API layer (app.py) BEFORE the
+    graph is invoked: chunks are fetched from Azure AI Search and appended to the
+    user message. Landmark chat injects the spot's own curated content directly
+    (no vector search) because the landmark is already known.
+  - The guardrail node re-checks scope inside the graph, but the primary scope check
+    also runs in app.py on the RAW message before any context injection — injected
+    Penang content would otherwise smuggle off-topic requests past a keyword check.
+  - Conversation state: clients (the mobile app) persist chat history themselves and
+    replay it each turn, so when `history` is provided the graph runs on an EPHEMERAL
+    thread (see run_agent) — the MemorySaver checkpointer only persists threads for
+    callers that don't send history (admin curate, demo UI).
+  - validation_node is a self-correction loop: if the model writes an itinerary as
+    plain text instead of calling format_itinerary_tool, it gets a correction
+    message and another attempt (the mobile app needs structured stops to render).
+
+Tools available to the agent: place search/details, travel times, opening hours,
+weather, route optimization/visualization, and format_itinerary_tool (the structured
+output channel). All are read-only lookups — a jailbroken prompt can produce an
+off-topic answer, not a data mutation.
 """
 
 import os
